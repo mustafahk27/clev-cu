@@ -1,0 +1,13 @@
+"""Vendor-neutral errors that adapters raise and the control loop handles."""
+
+
+class ClevError(Exception):
+    """Base class for Clev errors."""
+
+
+class StaleElementError(ClevError):
+    """The element id is from an older observation, or the element left the page."""
+
+
+class ActionError(ClevError):
+    """An action could not be performed (bad arguments, element not actionable, timeout)."""
