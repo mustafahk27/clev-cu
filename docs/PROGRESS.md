@@ -103,4 +103,5 @@ Update this file at the end of every phase and whenever a deviation or open ques
 - [ ] `<select>` dropdowns are `combobox` + `click`, but choosing an option needs Playwright's `select_option`.
   Add a `select` action kind in Phase 4 if tasks need it. File inputs (`upload picture`) aren't supported either.
 - [ ] Phase 3 branched from `phase-2/browser-observer` (Phase 2 isn't merged into master yet). Merge phase 2 first.
-- [ ] Jev API: request/response shapes, real option/context limits, rate limits (Phase 5).
+- [x] Jev API: read TypeSafe's docs (2026-09-25). Shapes, limits, pricing and 6 design consequences are in
+  CLEV_PLAN.md §8 under "Confirmed from TypeSafe's docs". Pricing matches the plan ($42/B input, output free).
