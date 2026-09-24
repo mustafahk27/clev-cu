@@ -2,8 +2,7 @@ import json
 
 from typer.testing import CliRunner
 
-from clev.cli import app, find_same
-from clev.core.types import Element, Observation
+from clev.cli import app
 
 runner = CliRunner()
 
@@ -30,25 +29,12 @@ def test_observe_type_needs_click():
     assert "--click" in result.output
 
 
-def el(id, role, name, focused=False):
-    return Element(id=id, role=role, name=name, focused=focused)
-
-
-def test_find_same_follows_role_change_and_focus():
-    old = el("e18", "searchbox", "Search Wikipedia")
-    # The searchbox became a focused combobox with the same name.
-    new = Observation(app="a", title="t", elements=[
-        el("e1", "link", "Search"),
-        el("e18", "combobox", "Search Wikipedia", focused=True),
-    ])  # fmt: skip
-    assert find_same(new, old).id == "e18"
-    # Same name, nothing focused: prefer the same role.
-    new = Observation(app="a", title="t", elements=[
-        el("e2", "heading", "Search Wikipedia"),
-        el("e3", "searchbox", "Search Wikipedia"),
-    ])  # fmt: skip
-    assert find_same(new, old).id == "e3"
-    # Name changed: fall back to whatever is focused.
-    new = Observation(app="a", title="t", elements=[el("e4", "textbox", "Query", focused=True)])
-    assert find_same(new, old).id == "e4"
-    assert find_same(Observation(app="a", title="t"), old) is None
+def test_state_prints_serialized_options():
+    fixture = "tests/fixtures/form.json.gz"
+    result = runner.invoke(app, ["state", fixture, "Tick the Reading hobby", "--done", "Open form"])
+    assert result.exit_code == 0, result.output
+    assert "GOAL: Tick the Reading hobby" in result.output
+    assert "DONE SO FAR: 1) Open form" in result.output
+    assert "STUCK" in result.output
+    best = result.output.split("Best 5 by rank:")[1].splitlines()[1]
+    assert "'Reading'" in best
