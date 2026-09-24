@@ -55,7 +55,5 @@ async def test_live_wikipedia_observe_and_click(browser_session):
     observer = BrowserObserver(browser_session)
     obs = await observer.observe()
     history = next(e for e in obs.elements if e.role == "link" and e.name == "History")
-    await BrowserExecutor(browser_session).execute(
-        Action(kind="click", element_id=history.id), obs
-    )
+    await BrowserExecutor(browser_session).execute(Action(kind="click", element_id=history.id), obs)
     assert browser_session.page.url.endswith("#History")
