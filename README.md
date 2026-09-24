@@ -10,9 +10,13 @@ See [CLEV_PLAN.md](CLEV_PLAN.md) for the full design and build phases.
 
 ```bash
 uv sync
+uv run playwright install chromium
 cp .env.example .env   # fill in API keys
-uv run clev run "search Wikipedia for Karachi" --mode browser --decider mock
-uv run pytest
+uv run clev observe https://en.wikipedia.org/wiki/Karachi            # list elements
+uv run clev observe https://en.wikipedia.org/wiki/Karachi --click e33 # click one by id
+uv run pytest            # offline tests
+uv run pytest -m live    # tests that hit real sites
 ```
 
-Status: Phase 1 (skeleton). The CLI parses config; the control loop lands in Phase 4.
+Status: Phase 2 (browser observer + executor). The control loop lands in Phase 4.
+Progress and open questions: [docs/PROGRESS.md](docs/PROGRESS.md).
