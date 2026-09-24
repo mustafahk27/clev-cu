@@ -33,5 +33,5 @@ Update this file at the end of every phase and whenever a deviation or open ques
 
 ## Open questions
 - [ ] Local Python is 3.14. Confirm Playwright supports it at the start of Phase 2; otherwise pin 3.12.
-- [ ] Not a git repo yet. `git init` + first commit?
+- [x] Git: commits on `master`, remote `mustafahk27/clev-cu`, author `mustafahk27`, one commit per section.
 - [ ] Jev API: request/response shapes, real option/context limits, rate limits (Phase 5).
