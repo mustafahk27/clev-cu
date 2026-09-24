@@ -14,6 +14,7 @@ uv run playwright install chromium
 cp .env.example .env   # fill in API keys
 uv run clev observe https://en.wikipedia.org/wiki/Karachi            # list elements
 uv run clev observe https://en.wikipedia.org/wiki/Karachi --click e33 # click one by id
+uv run clev observe https://en.wikipedia.org/wiki/Karachi --click e18 --type Muscat --press enter --headed --hold 3
 uv run pytest            # offline tests
 uv run pytest -m live    # tests that hit real sites
 ```

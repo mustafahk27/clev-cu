@@ -28,7 +28,7 @@ Update this file at the end of every phase and whenever a deviation or open ques
 - Built: `clev/observe/browser.py` (`BrowserSession`, `BrowserObserver`), `clev/observe/dom_snapshot.js`,
   `clev/observe/io.py` (fixture save/load), `clev/execute/browser.py` (`BrowserExecutor`),
   `clev/core/errors.py`, `clev observe` CLI command, `scripts/capture_fixtures.py`, fixtures in `tests/fixtures/`.
-- Run: `uv run clev observe https://en.wikipedia.org/wiki/Karachi --click e33`,
+- Run: `uv run clev observe https://en.wikipedia.org/wiki/Karachi --click e18 --type Muscat --press enter --headed --hold 3`,
   `uv run pytest -q` (offline), `uv run pytest -m live` (hits Wikipedia).
 - Perf: `observe()` on a 4,678-element page (Wikipedia/Karachi) takes ~59 ms. The first version took ~239 ms because
   Playwright transfers 5k objects slowly; the script now returns one compact JSON string (rows + context table).
@@ -71,4 +71,8 @@ Update this file at the end of every phase and whenever a deviation or open ques
   (b) a public webmail demo you know, (c) skip it; WebArena has no mail app anyway.
 - [ ] Trace size: full observations are ~1 MB/step on heavy pages (Phase 1 benchmark). Plan: trace only the
   filtered candidates in Phase 3, and store the full observation only when it changes in Phase 4.
+- [ ] **For Phase 4:** pages replace elements after actions. Clicking Wikipedia's search box swaps the
+  `searchbox` for a new `combobox` node, so the old id goes stale. The loop must re-observe before every action
+  (never reuse ids across actions), and history/loop detection should match elements by name, not id or role.
+  `clev observe` does this with `find_same()`; move it into `clev/state/` in Phase 3/4.
 - [ ] Jev API: request/response shapes, real option/context limits, rate limits (Phase 5).
