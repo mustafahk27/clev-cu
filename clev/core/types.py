@@ -23,7 +23,8 @@ class Element(BaseModel):
     enabled: bool = True
     focused: bool = False
     visible: bool = True
-    bounds: tuple[int, int, int, int] | None = None  # x, y, width, height
+    bounds: tuple[int, int, int, int] | None = None  # x, y, width, height (page coordinates)
+    editable: bool = False  # accepts typed text (text inputs, editable comboboxes, contenteditable)
 
 
 class Observation(BaseModel):
@@ -32,6 +33,7 @@ class Observation(BaseModel):
     url: str | None = None
     elements: list[Element] = Field(default_factory=list)
     timestamp: float = Field(default_factory=time.time)
+    viewport: tuple[int, int, int, int] | None = None  # visible area: scroll x, y, width, height
 
     def element(self, element_id: str) -> Element | None:
         return next((e for e in self.elements if e.id == element_id), None)
