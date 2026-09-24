@@ -13,8 +13,8 @@ Current status: [docs/PROGRESS.md](docs/PROGRESS.md).
 - **One phase at a time.** At the end of a phase: stop, summarize what was built, show how to
   run it, list unresolved items, update `docs/PROGRESS.md`, and **wait for confirmation**.
 - Small, targeted changes. When fixing a bug, change only what's needed. Don't rewrite working modules.
-- Vendor SDKs (Jev, `anthropic`, `playwright`, `pyobjc`) are imported **only** in adapter modules
-  (`observe/`, `execute/`, `decide/jev.py`, `decide/llm_decider.py`, `planner/`). Everything
+- Vendor SDKs (Jev, `openai`, `anthropic`, `playwright`, `pyobjc`) are imported **only** in adapter modules
+  (`observe/`, `execute/`, `decide/jev.py`, `llm/`). Everything
   else depends on the protocols in `clev/core/interfaces.py`.
 - The Jev API shape is unknown. Keep `MockDecider` working. When wiring Jev, follow TypeSafe's
   official docs and change only `decide/jev.py`.

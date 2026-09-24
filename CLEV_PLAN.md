@@ -12,7 +12,7 @@ Read this whole file before writing any code. Then follow these rules:
 
 1. Work **one phase at a time** (Section 12). At the end of each phase, stop, summarize what was built, show how to run it, list anything unresolved, and **wait for my confirmation** before starting the next phase.
 2. Prefer small, targeted changes. When fixing a bug, change only what's needed. Do not rewrite working modules.
-3. Every external dependency (Jev, Anthropic API, OS automation) sits behind an interface defined in `clev/core/interfaces.py`. Nothing outside the adapter modules imports a vendor SDK directly.
+3. Every external dependency (Jev, LLM APIs, OS automation) sits behind an interface defined in `clev/core/interfaces.py`. Nothing outside the adapter modules imports a vendor SDK directly.
 4. Jev access is waitlist-only and its SDK details may not match what's assumed here. Build the `MockDecider` first so everything runs without Jev. When wiring the real Jev adapter, read TypeSafe's official docs and adjust the adapter only, not the core loop.
 5. Never hardcode API keys. Load from environment variables via `.env` (and ship `.env.example`).
 6. Write tests alongside code. Each phase must pass `pytest` before I'm asked to confirm.
@@ -92,7 +92,7 @@ What Jev cannot do, and how Clev handles it:
 
 ### Components
 
-- **Planner** (`clev/planner/`): Takes the task, returns an ordered list of subgoals. Also called on demand to produce text for a typing action (e.g. an email body, a search query). Uses the Anthropic API.
+- **Planner** (`clev/planner/`): Takes the task, returns an ordered list of subgoals. Also called on demand to produce text for a typing action (e.g. an email body, a search query). Uses an LLM provider (OpenAI by default, Anthropic supported) via the `LLMClient` adapter.
 - **Observer** (`clev/observe/`): Captures the current UI as a tree of elements with role, name, value, state (enabled, focused, visible), bounds, and parent context.
 - **Serializer** (`clev/state/`): Filters and ranks elements, then renders the top candidates as compact numbered lines that fit the token budget.
 - **Decider** (`clev/decide/`): Sends the serialized state plus typed questions to Jev. Returns chosen action and probabilities.
@@ -109,7 +109,7 @@ What Jev cannot do, and how Clev handles it:
 - **Package manager:** `uv`
 - **Browser automation:** Playwright (Chromium), using its accessibility snapshot and DOM
 - **Desktop automation (macOS):** `pyobjc` with `ApplicationServices` / `AXUIElement` APIs
-- **Planner / Escalator LLM:** Anthropic API. Default `claude-haiku-4-5-20251001` for escalation (fast), `claude-sonnet-5` for planning. Both configurable.
+- **Planner / Escalator LLM:** provider selected by `LLM_PROVIDER` (default `openai`, also `anthropic`). OpenAI default: `gpt-6-luna` for both planning and escalation (cheapest current-gen model: $0.10 in / $0.50 out per 1M tokens). Upgrade the planner to `gpt-6-sol` if plan quality is poor. Anthropic equivalents: `claude-sonnet-5` / `claude-haiku-4-5-20251001`. All configurable.
 - **Decision model:** Jev (TypeSafe AI), behind the `Decider` interface
 - **Config:** `pydantic-settings`, `.env`
 - **CLI:** `typer`
@@ -140,8 +140,11 @@ clev-cu/                    # repo root
       interfaces.py         # Protocols: Observer, Decider, Planner, Executor, Tracer
       types.py              # Element, Observation, Action, Option, SerializedState, Decision, StepRecord
       loop.py               # the control loop
+    llm/
+      openai.py             # LLMClient adapter (default provider)
+      anthropic.py          # LLMClient adapter
     planner/
-      anthropic_planner.py
+      planner.py            # plan / write_text / replan on top of LLMClient
       prompts.py
     observe/
       browser.py            # Playwright observer
@@ -353,7 +356,7 @@ Each phase ends with a summary and a pause for my confirmation. Live status is t
 ### Phase 4: End-to-end loop with Mock and LLM deciders
 - `MockDecider` (heuristic, for offline dev)
 - `LLMDecider` using the same serialized state and options (this is also the baseline)
-- Anthropic planner with `plan`, `write_text`, `replan`
+- `LLMClient` protocol with OpenAI (default) and Anthropic adapters; the planner (`plan`, `write_text`, `replan`) and `LLMDecider` are built on it
 - Control loop wiring everything, safety gate included
 - **Done when:** `clev run "search Wikipedia for Karachi and open the article" --decider llm` completes live.
 
@@ -366,7 +369,7 @@ Each phase ends with a summary and a pause for my confirmation. Live status is t
 ### Phase 6: Offline eval (Mind2Web)
 - Loader for Mind2Web step data mapped into Clev's `Observation`
 - Step-level metrics: element accuracy, action accuracy, latency, cost
-- Compare: Jev alone, Jev + escalation, Haiku as decider, Sonnet as decider
+- Compare: Jev alone, Jev + escalation, the escalation model as decider, the planner model as decider
 - Calibration: reliability diagram and ECE for Jev's `next_action` confidence
 - Sweep `CONFIDENCE_THRESHOLD` to plot accuracy vs escalation rate vs cost
 - **Done when:** `clev eval mind2web --n 500` produces a report with tables and plots.
@@ -420,11 +423,14 @@ All derived from traces, so every run is re-analyzable later.
 ## 15. Config defaults (`.env.example`)
 
 ```
+# openai | anthropic
+LLM_PROVIDER=openai
+OPENAI_API_KEY=
 ANTHROPIC_API_KEY=
 JEV_API_KEY=
 JEV_BASE_URL=
-PLANNER_MODEL=claude-sonnet-5
-ESCALATION_MODEL=claude-haiku-4-5-20251001
+PLANNER_MODEL=gpt-6-luna          # upgrade: gpt-6-sol; anthropic: claude-sonnet-5
+ESCALATION_MODEL=gpt-6-luna       # anthropic: claude-haiku-4-5-20251001
 # jev | llm | mock
 DECIDER=jev
 CONFIDENCE_THRESHOLD=0.6
