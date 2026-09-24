@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     token_budget: int = Field(24000, gt=0)
     max_steps: int = Field(50, gt=0)
 
+    headless: bool = False  # show the browser by default; tests and evals run headless
     confirm_destructive: bool = True
     dry_run: bool = False
 
