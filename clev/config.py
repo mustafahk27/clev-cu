@@ -10,17 +10,20 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DeciderName = Literal["jev", "llm", "mock"]
 Mode = Literal["browser", "desktop"]
+LLMProvider = Literal["openai", "anthropic"]
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
+    llm_provider: LLMProvider = "openai"
+    openai_api_key: SecretStr | None = None
     anthropic_api_key: SecretStr | None = None
     jev_api_key: SecretStr | None = None
     jev_base_url: str | None = None
 
-    planner_model: str = "claude-sonnet-5"
-    escalation_model: str = "claude-haiku-4-5-20251001"
+    planner_model: str = "gpt-6-luna"
+    escalation_model: str = "gpt-6-luna"
     decider: DeciderName = "jev"
 
     confidence_threshold: float = Field(0.6, ge=0.0, le=1.0)
@@ -38,7 +41,7 @@ class Settings(BaseSettings):
     def redacted(self) -> dict:
         """Config as JSON-safe dict with API keys replaced by set/unset."""
         data = self.model_dump(mode="json")
-        for key in ("anthropic_api_key", "jev_api_key"):
+        for key in ("openai_api_key", "anthropic_api_key", "jev_api_key"):
             data[key] = "set" if getattr(self, key) else "unset"
         return data
 
