@@ -121,3 +121,30 @@ def test_decode_elements():
     assert (a.id, a.context, a.enabled, a.focused, a.visible) == ("e0", "main", True, False, True)
     assert a.bounds == (1, 2, 3, 4)
     assert (b.id, b.focused, b.visible) == ("e1", True, False)
+
+
+async def test_editable_and_viewport(browser_session, open_page):
+    await open_page(
+        """<input aria-label="Name"><input type="checkbox" aria-label="Agree">
+        <input aria-label="Locked" readonly><textarea aria-label="Notes"></textarea>
+        <div contenteditable aria-label="Body"></div><button>Go</button>
+        <input role="combobox" aria-label="Search">
+        <div style="height:3000px"></div>"""
+    )
+    await browser_session.page.evaluate("scrollTo(0, 500)")
+    obs = await BrowserObserver(browser_session).observe()
+    editable = {e.name for e in obs.elements if e.editable}
+    assert editable == {"Name", "Notes", "Body", "Search"}
+    assert obs.viewport == (0, 500, 1280, 800)
+
+
+async def test_article_context_and_id_fallback_names(browser_session, open_page):
+    await open_page(
+        """<article><h3>Tipping the Velvet</h3><button>Add to basket</button></article>
+        <article><h3>Soumission</h3><button>Add to basket</button></article>
+        <label>Date of Birth</label><input id="dateOfBirthInput">"""
+    )
+    obs = await BrowserObserver(browser_session).observe()
+    baskets = [e.context for e in obs.elements if e.name == "Add to basket"]
+    assert baskets == ['article "Tipping the Velvet"', 'article "Soumission"']
+    assert any(e.name == "date of birth" and e.role == "textbox" for e in obs.elements)

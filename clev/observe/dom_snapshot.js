@@ -12,7 +12,7 @@
   const TEXTUAL = new Set(["heading", "alert", "status"]);
   const CONTAINERS = new Set([
     "banner", "navigation", "main", "contentinfo", "complementary", "form", "dialog",
-    "alertdialog", "region", "search", "menu", "menubar", "toolbar", "tablist", "tree", "grid",
+    "alertdialog", "region", "search", "menu", "menubar", "toolbar", "tablist", "tree", "grid", "article",
   ]);
   const TEXT_INPUTS = new Set(["", "text", "email", "tel", "url", "password"]);
   const SECRET_AUTOCOMPLETE = /^(cc-number|cc-csc|cc-exp|one-time-code|current-password|new-password)$/;
@@ -33,6 +33,7 @@
       case "aside": return "complementary";
       case "dialog": return "dialog";
       case "form": return "form";
+      case "article": return "article";
       case "search": return "search";
       case "header": return el.closest("article,section,main,aside,nav") ? null : "banner";
       case "footer": return el.closest("article,section,main,aside,nav") ? null : "contentinfo";
@@ -68,6 +69,11 @@
     return clean(t);
   }
 
+  // Last-resort name from an id like "dateOfBirthInput" -> "date of birth".
+  const humanizeId = (id) =>
+    clean((id || "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[-_]+/g, " ").replace(/\b(input|field)\b/gi, ""))
+      .toLowerCase();
+
   function nameOf(el, role) {
     const labelled = byIds(el, "aria-labelledby");
     if (labelled) return labelled;
@@ -80,7 +86,8 @@
       if (t === "image") return clean(el.alt) || "Submit";
       const labels = el.labels ? [...el.labels].map((l) => l.innerText).join(" ") : "";
       if (clean(labels)) return clean(labels);
-      return clean(el.getAttribute("placeholder") || el.getAttribute("title") || el.getAttribute("name"));
+      return clean(el.getAttribute("placeholder") || el.getAttribute("title") || el.getAttribute("name")) ||
+        humanizeId(el.id);
     }
     if (role === "textbox" || role === "searchbox" || role === "combobox") {
       return clean(el.getAttribute("aria-placeholder") || el.getAttribute("title"));
@@ -123,7 +130,7 @@
     let part = null;
     if (CONTAINERS.has(role)) {
       let name = byIds(el, "aria-labelledby") || clean(el.getAttribute("aria-label"), 40);
-      if (!name && (role === "dialog" || role === "alertdialog")) {
+      if (!name && (role === "dialog" || role === "alertdialog" || role === "article")) {
         name = clean(el.querySelector("h1,h2,h3,[role=heading]")?.innerText, 40);
       }
       part = name ? `${role} "${name.slice(0, 40)}"` : role;
@@ -145,6 +152,16 @@
     const r = el.getBoundingClientRect();
     if (r.width < 1 || r.height < 1) return false;
     return el.checkVisibility ? el.checkVisibility({ visibilityProperty: true }) : true;
+  }
+
+  function isEditable(el) {
+    if (el.isContentEditable) return true;
+    const tag = el.tagName.toLowerCase();
+    if (tag === "textarea") return !el.readOnly;
+    if (tag !== "input") return false;
+    const t = (el.getAttribute("type") || "").toLowerCase();
+    return !["button", "submit", "reset", "image", "checkbox", "radio", "range", "color", "file", "hidden"]
+      .includes(t) && !el.readOnly;
   }
 
   const isEnabled = (el) =>
@@ -171,7 +188,8 @@
       if (role && (INTERACTIVE.has(role) || TEXTUAL.has(role))) {
         const r = el.getBoundingClientRect();
         els.set("e" + rows.length, el); // id is the row index; Python builds the same "e<N>"
-        const flags = (isEnabled(el) ? 1 : 0) | (el === active ? 2 : 0) | (isVisible(el) ? 4 : 0);
+        const flags = (isEnabled(el) ? 1 : 0) | (el === active ? 2 : 0) | (isVisible(el) ? 4 : 0) |
+          (isEditable(el) ? 8 : 0);
         rows.push([
           role, nameOf(el, role), valueOf(el, role), contextIndex(contextOf(el)), flags,
           Math.round(r.x + scrollX), Math.round(r.y + scrollY), Math.round(r.width), Math.round(r.height),
@@ -182,5 +200,6 @@
   }
   walk(document);
   window.__clev = { ts, els };
-  return JSON.stringify({ contexts: [...contexts.keys()], rows, truncated: rows.length >= maxElements });
+  const viewport = [Math.round(scrollX), Math.round(scrollY), innerWidth, innerHeight];
+  return JSON.stringify({ contexts: [...contexts.keys()], rows, viewport, truncated: rows.length >= maxElements });
 }
