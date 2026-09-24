@@ -90,12 +90,14 @@ class BrowserObserver:
         page = self.session.page
         ts = time.time()
         raw = await page.evaluate(_SNAPSHOT_JS, {"ts": ts, "maxElements": self.max_elements})
+        payload = json.loads(raw)
         return Observation(
             app="chromium",
             title=await page.title(),
             url=page.url,
-            elements=decode_elements(json.loads(raw)),
+            elements=decode_elements(payload),
             timestamp=ts,
+            viewport=tuple(payload["viewport"]),
         )
 
 
@@ -112,6 +114,7 @@ def decode_elements(payload: dict) -> list[Element]:
             enabled=bool(flags & 1),
             focused=bool(flags & 2),
             visible=bool(flags & 4),
+            editable=bool(flags & 8),
             bounds=(x, y, w, h),
         )
         for i, (role, name, value, ctx, flags, x, y, w, h) in enumerate(payload["rows"])

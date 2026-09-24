@@ -41,6 +41,7 @@ uv run pytest -q              # tests
 uv run ruff check . && uv run ruff format .   # lint + format
 uv run clev run "task" --mode browser --decider mock
 uv run clev observe <url> [--click e12] [--save tests/fixtures/x.json.gz]
+uv run clev state tests/fixtures/<name>.json.gz "<subgoal>"  # serialized options + top ranks
 uv run python scripts/capture_fixtures.py     # refresh real-site fixtures (public pages only)
 uv run pytest -m live                         # tests that hit real sites
 uv run clev replay traces/<run>.jsonl

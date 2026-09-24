@@ -287,6 +287,37 @@ Adapter notes for `decide/jev.py`:
 - Record input tokens for cost tracking (input priced at $42 per billion tokens, output free, per launch coverage; make pricing configurable).
 - Retries with exponential backoff; on repeated failure, fall through to the LLM decider for that step.
 
+### Confirmed from TypeSafe's docs (docs.typesafe.ai/api, read 2026-09-25)
+
+- **API:** `POST https://api.typesafe.ai/v1/systemone`, `Authorization: Bearer <key>`. Body: `model`, `state`
+  (string, object or array; text only), `questions` (map of id to question). All questions in one call (fan-out).
+- **SDK:** `typesafe-sdk` (`uv add typesafe-sdk`), `AsyncTypeSafeClient(api_key=..., base_url=..., model=..., retry=..., timeout=...)`,
+  `await client.system_one(state=..., questions={...})`. Question types `Choice`, `Noul`, `Score`.
+  Response: `.choices[id].choice / .probabilities / .confidence`, `.nouls[id].noul`, `.scores[id].score`, `.usage.input_tokens`.
+- **Question types:** `choice` (criteria = map of option key to description, **max 255**), `noul` (yes/no probability,
+  no confidence), `score` (2-10 rubric levels; docs warn of weak numeric calibration).
+- **Model:** `jev-1.13.0` (alias `jev-latest`). Context: **64K per request; 32K for `state` plus the longest question**.
+  Price: $42 per billion input tokens, output free. Rate limit: 250K tokens/s, 1,200 requests/min.
+- **Confidence** is computed from the whole distribution, ≈ (N·p_max − 1)/(N − 1), so with ~200 options it's close
+  to p_max. Docs suggest >0.9 act automatically, 0.5–0.9 act with care, <0.5 fall back.
+- **Known weaknesses (jev-1.13):** takes questions literally; can't count or do arithmetic; "accuracy falls as the
+  state grows with content unrelated to the decision"; vulnerable to prompt injection in state.
+
+### Design consequences for Phase 5
+
+1. `next_action` is a `choice` question whose **criteria are the options** (key = option label, value = option line).
+   `state` is an object with the page header, goal, done-so-far and context. The 32K limit covers state + the options,
+   so the existing 24K `TOKEN_BUDGET` still leaves room for instructions. `SerializedState` needs the header exposed
+   separately from the option lines.
+2. Use Jev's `confidence` field for the threshold (≈ top probability at our option counts); keep the margin rule.
+   Destructive actions need a higher bar (e.g. 0.9) on top of user confirmation.
+3. `progress` as a `score` comparing two screens adds unrelated state (a known accuracy drag) and scores are weakly
+   calibrated. Proposal: a `noul` "Did the last action move closer to the goal?" with the last action as text.
+4. Fewer, better options may beat 200 (distractors hurt). Sweep `MAX_OPTIONS` (50/100/200) in Phase 6.
+5. Criteria-key rules aren't documented; examples use lowercase ids. Check that "1".."200" work; else use "o1".."o200".
+6. Pin `JEV_MODEL=jev-1.13.0` for reproducible evals, and pass the key explicitly (the SDK's own env var is
+   `TYPESAFE_API_KEY`; ours is `JEV_API_KEY`).
+
 ---
 
 ## 9. Escalation policy

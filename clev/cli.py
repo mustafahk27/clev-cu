@@ -1,4 +1,4 @@
-"""Command-line entry point: `clev run`, `clev observe`, `clev replay`, `clev eval`."""
+"""Command-line entry point: `clev run | observe | state | replay | eval`."""
 
 from __future__ import annotations
 
@@ -11,7 +11,8 @@ import typer
 
 from clev.config import DeciderName, Mode, load_settings
 from clev.core.errors import ClevError
-from clev.core.types import Element, Observation
+from clev.core.types import Element
+from clev.state.match import find_same
 from clev.trace.tracer import read_trace
 
 app = typer.Typer(help="Clev: clever enough to know when to think.", no_args_is_help=True)
@@ -83,22 +84,6 @@ def observe(
     asyncio.run(_observe(url, steps, save, limit, show_hidden, settings.headless))
 
 
-def find_same(obs: Observation, old: Element) -> Element | None:
-    """Find `old` in a newer observation.
-
-    Widgets change role when activated (Wikipedia's searchbox becomes a combobox on focus), so
-    match by name, preferring the focused element and then the same role, else the focused one.
-    """
-    same_name = [e for e in obs.elements if e.name == old.name]
-    for e in same_name:
-        if e.focused:
-            return e
-    for e in same_name:
-        if e.role == old.role:
-            return e
-    return next((e for e in obs.elements if e.focused), same_name[0] if same_name else None)
-
-
 @dataclass
 class ObserveSteps:
     click: str | None = None
@@ -164,6 +149,32 @@ async def _observe(
                 typer.echo(f"Field now: {format_element(field).strip()}")
         if steps.hold:
             await session.page.wait_for_timeout(steps.hold * 1000)
+
+
+@app.command()
+def state(
+    observation: Annotated[
+        Path, typer.Argument(exists=True, dir_okay=False, help="Saved .json(.gz)")
+    ],
+    goal: Annotated[str, typer.Argument(help="Current subgoal, e.g. 'Open the History section'.")],
+    done: Annotated[list[str] | None, typer.Option(help="Completed subgoal (repeatable).")] = None,
+    top: Annotated[int, typer.Option(help="Also print the N best-ranked options.")] = 5,
+) -> None:
+    """Show exactly what the decider sees for a saved observation and a subgoal."""
+    from clev.observe.io import load_observation
+    from clev.state.filter import filter_elements
+    from clev.state.rank import rank
+    from clev.state.serialize import build_state
+
+    settings = load_settings()
+    obs = load_observation(observation)
+    st = build_state(obs, goal, done, settings.max_options, settings.token_budget)
+    typer.echo(st.text)
+    typer.echo(f"\n{len(st.options)} options, ~{st.token_estimate} tokens")
+    if top:
+        typer.echo(f"\nBest {top} by rank:")
+        for e, score in rank(filter_elements(obs).candidates, goal, obs.viewport)[:top]:
+            typer.echo(f"  {score:5.2f}  {format_element(e).strip()}")
 
 
 @app.command(name="eval")
