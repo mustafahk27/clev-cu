@@ -16,8 +16,8 @@ Current status: [docs/PROGRESS.md](docs/PROGRESS.md).
 - Vendor SDKs (Jev, `openai`, `anthropic`, `playwright`, `pyobjc`) are imported **only** in adapter modules
   (`observe/`, `execute/`, `decide/jev.py`, `llm/`). Everything
   else depends on the protocols in `clev/core/interfaces.py`.
-- The Jev API shape is unknown. Keep `MockDecider` working. When wiring Jev, follow TypeSafe's
-  official docs and change only `decide/jev.py`.
+- Keep `MockDecider` working. When wiring Jev, follow TypeSafe's official docs (summary in CLEV_PLAN.md §8)
+  and change only `decide/jev.py` (plus `decide/escalate.py`).
 - Never hardcode API keys. Config comes from env / `.env` via `clev/config.py`. New settings go
   in `Settings`, `.env.example`, and CLEV_PLAN.md §15.
 - Tests alongside code. A phase isn't done until `uv run pytest` passes.
@@ -39,7 +39,8 @@ uv sync                       # install
 uv run playwright install chromium            # browser for observer/executor
 uv run pytest -q              # tests
 uv run ruff check . && uv run ruff format .   # lint + format
-uv run clev run "task" --mode browser --decider mock
+uv run clev run "task" --decider llm [--headless] [--dry-run]   # the agent (needs OPENAI_API_KEY)
+uv run clev run "task" --show-config          # print parsed config
 uv run clev observe <url> [--click e12] [--save tests/fixtures/x.json.gz]
 uv run clev state tests/fixtures/<name>.json.gz "<subgoal>"  # serialized options + top ranks
 uv run python scripts/capture_fixtures.py     # refresh real-site fixtures (public pages only)
