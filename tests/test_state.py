@@ -6,13 +6,13 @@ import pytest
 from clev.core.types import Element, Observation
 from clev.observe.io import load_observation
 from clev.state.filter import MAX_CONTEXT, filter_elements, in_viewport
-from clev.state.goal import Goal, extract_literal
+from clev.state.goal import Goal, extract_literal, tokens
 from clev.state.rank import rank
 from clev.state.serialize import GLOBAL_OPTIONS, build_state
-from tests.state_labels import LABELS
+from tests.state_labels import HELDOUT, LABELS
 
 FIXTURES = Path(__file__).parent / "fixtures"
-FIXTURE_NAMES = sorted({name for name, _, _ in LABELS})
+FIXTURE_NAMES = sorted({name for name, _, _ in LABELS + HELDOUT})
 GLOBAL_LABELS = [label for label, _, _ in GLOBAL_OPTIONS]
 
 
@@ -173,7 +173,7 @@ def test_goal_parsing():
     assert g.is_typing and g.literal == "Muscat"
     assert "muscat" not in g.tokens and {"destination", "field"} <= g.tokens
     click = Goal.parse('Click the "Sign in" button')
-    assert not click.is_typing and {"sign", "button"} <= click.tokens
+    assert not click.is_typing and {"login", "button"} <= click.tokens  # "sign in" -> login
     assert "click" not in click.tokens
     assert extract_literal("Search for “Karachi port”") == "Karachi port"
     assert extract_literal("Open settings") is None
@@ -196,3 +196,26 @@ def test_rank_bonuses_and_penalties():
     assert rank(focus, 'Type "x" into Name')[0][0].id == "e1"
     nav = [el("e0", "link", "Docs", context="navigation"), el("e1", "link", "Docs", context="main")]
     assert rank(nav, "open Docs")[0][0].id == "e1"
+
+
+@pytest.mark.parametrize(
+    ("a", "b"),
+    [
+        ("Log in to the site", "login"),
+        ("Sign in", "Log in"),
+        ("sign-out", "Log out"),
+        ("Sign up", "Register"),
+        ("Go to the next page", "More"),
+        ("next", "»"),
+        ("Enter the email", "name@example.com"),
+        ("newest stories", "new"),
+        ("Add to basket", "cart"),
+    ],
+)
+def test_wording_normalization_meets_on_one_concept(a, b):
+    assert set(tokens(a)) & set(tokens(b)), (tokens(a), tokens(b))
+
+
+def test_non_plurals_are_not_stemmed():
+    assert tokens("Hacker News") == ["hacker", "news"]
+    assert "new" not in tokens("Hacker News")

@@ -19,7 +19,15 @@ _QUOTED = re.compile(r'"([^"]+)"|“([^”]+)”|\'([^\']+)\'')
 _WORD = re.compile(r"[a-z0-9]+")
 
 
+# Words ending in "s" that aren't plurals.
+NO_STEM = frozenset(
+    "news status series species campus bonus canvas atlas alias gps ios macos".split()
+)
+
+
 def stem(word: str) -> str:
+    if word in NO_STEM:
+        return word
     if len(word) > 4 and word.endswith("ies"):
         return word[:-3] + "y"
     if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
@@ -27,8 +35,40 @@ def stem(word: str) -> str:
     return word
 
 
+# Normalize wording so a goal and an element meet on one concept word. Applied to both sides
+# before tokenizing ("Log in" ~ "login", "»" ~ "next").
+_PHRASES = [
+    (re.compile(r"\b(?:log|sign)[\s-]*(?:in|on)\b"), " login "),
+    (re.compile(r"\b(?:log|sign)[\s-]*(?:out|off)\b"), " logout "),
+    (re.compile(r"\bsign[\s-]*up\b|\bregister\b"), " signup "),
+    (re.compile(r"\S+@\S+\.\w+"), " email "),  # placeholder "name@example.com" is an email field
+    (re.compile(r"[»›→]"), " next "),
+    (re.compile(r"[«‹←]"), " prev "),
+]
+# Applied after stemming: word -> concept.
+SYNONYMS = {
+    "more": "next", "older": "next",
+    "previous": "prev", "newer": "prev",
+    "newest": "new", "latest": "new", "recent": "new",
+    "basket": "cart", "bag": "cart", "trolley": "cart",
+    "remove": "delete", "trash": "delete",
+    "preference": "setting",
+    "mail": "email", "e": "", "signin": "login", "logon": "login",
+}  # fmt: skip
+
+
 def tokens(text: str) -> list[str]:
-    return [stem(w) for w in _WORD.findall(text.lower()) if w not in STOPWORDS]
+    text = text.lower()
+    for pattern, concept in _PHRASES:
+        text = pattern.sub(concept, text)
+    out = []
+    for w in _WORD.findall(text):
+        if w in STOPWORDS:
+            continue
+        w = SYNONYMS.get(stem(w), stem(w))
+        if w:
+            out.append(w)
+    return out
 
 
 def extract_literal(subgoal: str) -> str | None:
