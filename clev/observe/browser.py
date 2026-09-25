@@ -13,7 +13,9 @@ import time
 from importlib.resources import files
 
 from playwright.async_api import Browser, BrowserContext, Page, Playwright, async_playwright
+from playwright.async_api import Error as PlaywrightError
 
+from clev.core.errors import ObservationError
 from clev.core.types import Element, Observation
 
 _SNAPSHOT_JS = files("clev.observe").joinpath("dom_snapshot.js").read_text(encoding="utf-8")
@@ -82,12 +84,28 @@ class BrowserSession:
 
 
 class BrowserObserver:
-    def __init__(self, session: BrowserSession, max_elements: int = 5000):
+    def __init__(self, session: BrowserSession, max_elements: int = 5000, attempts: int = 4):
         self.session = session
         self.max_elements = max_elements
+        self.attempts = attempts
 
     async def observe(self) -> Observation:
-        page = self.session.page
+        # A page that navigates mid-read (redirects, search -> article) destroys the script's
+        # context; wait for the new page to load and read again.
+        for attempt in range(self.attempts):
+            page = self.session.page
+            try:
+                return await self._observe(page)
+            except PlaywrightError as e:
+                if attempt == self.attempts - 1:
+                    raise ObservationError(f"couldn't read the page: {e.message}") from e
+                try:
+                    await page.wait_for_load_state("domcontentloaded", timeout=5000)
+                except PlaywrightError:
+                    await page.wait_for_timeout(300)
+        raise AssertionError("unreachable")
+
+    async def _observe(self, page: Page) -> Observation:
         ts = time.time()
         raw = await page.evaluate(_SNAPSHOT_JS, {"ts": ts, "maxElements": self.max_elements})
         payload = json.loads(raw)

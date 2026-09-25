@@ -1,4 +1,4 @@
-"""Playwright executor: click, type, key, scroll, back, wait."""
+"""Playwright executor: click, type, key, scroll, back, goto, wait."""
 
 from __future__ import annotations
 
@@ -88,6 +88,10 @@ class BrowserExecutor:
                         await page.evaluate("s => scrollBy(0, s * 0.8 * innerHeight)", sign)
                 case "back":
                     await page.go_back(wait_until="domcontentloaded")
+                case "goto":
+                    if not action.url:
+                        raise ActionError("goto action needs url")
+                    await page.goto(action.url, wait_until="domcontentloaded", timeout=30000)
                 case "wait":
                     await page.wait_for_timeout(self.wait_ms)
                 case "done" | "fail":
