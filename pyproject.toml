@@ -5,6 +5,7 @@ description = "Fast computer use agent: a small decision model picks UI actions,
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "openai>=3.19.2",
     "playwright>=1.63.0",
     "pydantic>=2.7",
     "pydantic-settings>=2.3",

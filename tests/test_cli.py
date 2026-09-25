@@ -10,7 +10,9 @@ runner = CliRunner()
 def test_run_prints_parsed_config(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("DECIDER", raising=False)
-    result = runner.invoke(app, ["run", "open wikipedia", "--mode", "browser", "--decider", "mock"])
+    result = runner.invoke(
+        app, ["run", "open wikipedia", "--mode", "browser", "--decider", "mock", "--show-config"]
+    )
     assert result.exit_code == 0, result.output
     payload = json.loads(result.stdout)
     assert payload["task"] == "open wikipedia"
@@ -38,3 +40,19 @@ def test_state_prints_serialized_options():
     assert "STUCK" in result.output
     best = result.output.split("Best 5 by rank:")[1].splitlines()[1]
     assert "'Reading'" in best
+
+
+def test_run_refuses_jev_until_phase_5(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(app, ["run", "x", "--decider", "jev"])
+    assert result.exit_code == 2
+    assert "Phase 5" in result.output
+
+
+def test_run_needs_openai_key(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    result = runner.invoke(app, ["run", "x", "--decider", "llm"])
+    assert result.exit_code != 0
+    assert "OPENAI_API_KEY" in result.output

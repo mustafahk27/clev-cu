@@ -23,15 +23,101 @@ def run(
     task: Annotated[str, typer.Argument(help="Natural-language task to perform.")],
     mode: Annotated[Mode, typer.Option(help="Where to act.")] = "browser",
     decider: Annotated[DeciderName | None, typer.Option(help="Override DECIDER.")] = None,
+    url: Annotated[str | None, typer.Option(help="Page to open before planning.")] = None,
     dry_run: Annotated[
         bool | None, typer.Option("--dry-run/--no-dry-run", help="Print decisions only.")
     ] = None,
     max_steps: Annotated[int | None, typer.Option(help="Override MAX_STEPS.")] = None,
+    headless: Annotated[bool | None, typer.Option("--headless/--headed")] = None,
+    show_config: Annotated[bool, typer.Option(help="Print the parsed config and exit.")] = False,
 ) -> None:
-    """Run a task. (Phase 1: prints the parsed config; the loop arrives in Phase 4.)"""
-    settings = load_settings(decider=decider, dry_run=dry_run, max_steps=max_steps)
-    typer.echo(json.dumps({"task": task, "mode": mode, "config": settings.redacted()}, indent=2))
-    typer.echo("Control loop not implemented yet (Phase 4).", err=True)
+    """Run a task: plan it, then observe -> decide -> act until done."""
+    import asyncio
+
+    settings = load_settings(
+        decider=decider, dry_run=dry_run, max_steps=max_steps, headless=headless
+    )
+    if show_config:
+        typer.echo(
+            json.dumps({"task": task, "mode": mode, "config": settings.redacted()}, indent=2)
+        )
+        return
+    if mode == "desktop":
+        typer.echo("Desktop mode arrives in Phase 8.", err=True)
+        raise typer.Exit(2)
+    if settings.decider == "jev":
+        typer.echo("The Jev decider arrives in Phase 5; use --decider llm or mock.", err=True)
+        raise typer.Exit(2)
+    try:
+        ok = asyncio.run(_run(task, url, settings))
+    except KeyboardInterrupt:
+        typer.echo("\nStopped (Ctrl+C).", err=True)
+        raise typer.Exit(130) from None
+    raise typer.Exit(0 if ok else 1)
+
+
+def make_llm(settings):
+    """The configured LLMClient. Only clev/llm/ imports provider SDKs."""
+    if settings.llm_provider == "openai":
+        if not settings.openai_api_key:
+            raise typer.BadParameter("OPENAI_API_KEY is not set (see .env.example)")
+        from clev.llm.openai import OpenAIClient
+
+        return OpenAIClient(
+            settings.openai_api_key.get_secret_value(),
+            reasoning_effort=settings.llm_reasoning_effort,
+            timeout_s=settings.llm_timeout_s,
+        )
+    raise typer.BadParameter(f"LLM_PROVIDER={settings.llm_provider} isn't implemented yet")
+
+
+async def _run(task: str, url: str | None, settings) -> bool:
+    import asyncio
+
+    from clev.core.loop import Agent
+    from clev.decide.llm_decider import LLMDecider
+    from clev.decide.mock import MockDecider
+    from clev.execute.browser import BrowserExecutor
+    from clev.observe.browser import BrowserObserver, BrowserSession
+    from clev.planner.planner import LLMPlanner
+    from clev.safety.gate import SafetyGate
+    from clev.trace.tracer import JsonlTracer
+
+    llm = make_llm(settings)
+    planner = LLMPlanner(llm, settings.planner_model)
+    decider = (
+        MockDecider() if settings.decider == "mock" else LLMDecider(llm, settings.escalation_model)
+    )
+
+    async def confirm(question: str) -> bool:
+        return await asyncio.to_thread(typer.confirm, question, default=False)
+
+    gate = SafetyGate(settings.confirm_destructive, settings.domain_allowlist, confirm)
+    with JsonlTracer(settings.trace_dir) as tracer:
+        async with BrowserSession(headless=settings.headless) as session:
+            if url:
+                await session.goto(url)
+            agent = Agent(
+                observer=BrowserObserver(session),
+                executor=BrowserExecutor(session),
+                decider=decider,
+                planner=planner,
+                gate=gate,
+                tracer=tracer,
+                settings=settings,
+                run_id=tracer.run_id,
+                on_event=typer.echo,
+            )
+            typer.echo(
+                f"Task: {task}  (decider={settings.decider}, planner={settings.planner_model})"
+            )
+            result = await agent.run(task)
+    typer.echo(
+        f"\n{'SUCCESS' if result.success else 'FAILED'}: {result.reason}\n"
+        f"steps={result.steps}  time={result.seconds:.1f}s  cost=${result.cost_usd:.4f}\n"
+        f"trace: {tracer.path}"
+    )
+    return result.success
 
 
 @app.command()

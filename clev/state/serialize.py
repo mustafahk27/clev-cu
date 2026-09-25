@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 
-from clev.core.types import Action, Element, Observation, Option, SerializedState
+from clev.core.types import Action, Element, Observation, Option, SerializedState, StepRecord
 from clev.state.filter import filter_elements
 from clev.state.rank import is_editable, rank, select
 
@@ -14,6 +14,7 @@ GLOBAL_OPTIONS: list[tuple[str, str, Action | None]] = [
     ("SCROLL_UP", "scroll up", Action(kind="scroll", direction="up")),
     ("GO_BACK", "go back", Action(kind="back")),
     ("WAIT", "wait for the page", Action(kind="wait")),
+    ("PRESS_ENTER", "press Enter (submit the focused field)", Action(kind="key", key="enter")),
     ("SUBGOAL_DONE", "the current goal is already achieved", None),
     ("NONE_OF_THESE", "none of these options fit", None),
     ("STUCK", "stuck, need help", None),
@@ -93,8 +94,50 @@ def build_state(
         text = head + "\n" + "\n".join(o.line for o in options)
         tokens = estimate_tokens(text)
         if tokens <= token_budget or (not keep and name_cap == NAME_CAP_TIGHT):
-            return SerializedState(text=text, options=options, token_estimate=tokens)
+            elements = {str(i): e for i, e in enumerate(chosen, 1)}
+            return SerializedState(
+                text=text, options=options, token_estimate=tokens, elements=elements
+            )
         if name_cap != NAME_CAP_TIGHT:
             name_cap = NAME_CAP_TIGHT
         else:
             keep = keep[: max(0, len(keep) - max(1, len(keep) // 10))]  # drop worst 10%
+
+
+def describe_action(
+    action: Action | None, obs: Observation | None, label: str | None = None
+) -> str:
+    """Human-readable action for history and logs, e.g. "type searchbox 'Search' = 'Muscat'"."""
+    if action is None:
+        return label or "(no action)"
+    target = obs.element(action.element_id) if obs and action.element_id else None
+    what = f"{target.role} {clip(target.name, 60)!r}" if target else (action.element_id or "")
+    match action.kind:
+        case "type":
+            return f"type {what} = {clip(action.text or '', 40)!r}"
+        case "key":
+            return f"press {action.key}" + (f" on {what}" if target else "")
+        case "scroll":
+            return f"scroll {action.direction or 'down'}"
+        case "goto":
+            return f"open {action.url}"
+        case "click":
+            return f"click {what}"
+        case _:
+            return action.kind
+
+
+def history_lines(history: list[StepRecord], limit: int = 6) -> list[str]:
+    """The last few executed or attempted steps, oldest first, with their outcome."""
+    lines = []
+    for rec in [r for r in history if r.event == "step" and r.decision][-limit:]:
+        d = rec.decision
+        outcome = "ok"
+        if rec.error:
+            outcome = f"failed: {clip(rec.error, 80)}"
+        elif rec.blocked_by_safety:
+            outcome = f"blocked: {rec.blocked_by_safety}"
+        elif not rec.executed and d.action is not None:
+            outcome = "not executed"
+        lines.append(f"- {describe_action(d.action, rec.observation, d.chosen_label)} -> {outcome}")
+    return lines

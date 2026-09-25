@@ -9,8 +9,8 @@ Update this file at the end of every phase and whenever a deviation or open ques
 | 1 | Skeleton | ✅ Done (2026-09-24) | 13 tests passing, ruff clean |
 | 2 | Browser observer + executor | ✅ Done (2026-09-24) | 47 tests + 1 live, ruff clean; 4/5 fixtures |
 | 3 | State pipeline | ✅ Done (2026-09-24) | 68 tests + 1 live; recall@200 100%, @1 81% on 31 labels |
-| 4 | End-to-end loop (Mock + LLM deciders) | ⏳ Next | Waiting for go-ahead |
-| 5 | Jev adapter | — | Needs Jev API access + docs |
+| 4 | End-to-end loop (Mock + LLM deciders) | ✅ Done (2026-09-25) | 151 tests + 1 live; done-when task succeeds live |
+| 5 | Jev adapter | ⏳ Next | Docs read (plan §8); key in `.env` |
 | 6 | Offline eval (Mind2Web) | — | |
 | 7 | Online eval (WebArena) | — | |
 | 8 | macOS desktop mode | — | |
@@ -33,7 +33,7 @@ Update this file at the end of every phase and whenever a deviation or open ques
 - Perf: `observe()` on a 4,678-element page (Wikipedia/Karachi) takes ~59 ms. The first version took ~239 ms because
   Playwright transfers 5k objects slowly; the script now returns one compact JSON string (rows + context table).
 
-### Phase 3: State pipeline (branch `phase-3/state-pipeline`, stacked on `phase-2/browser-observer`)
+### Phase 3: State pipeline (branch `phase-3/state-pipeline`)
 - Built: `clev/state/filter.py`, `goal.py` (subgoal parsing + quoted-literal extraction for §10),
   `rank.py` (heuristic scores), `serialize.py` (`build_state()`), `match.py` (`find_same`, moved from the CLI),
   `clev state <fixture> "<goal>"` CLI, 31 hand-labeled steps in `tests/state_labels.py`.
@@ -53,11 +53,32 @@ Update this file at the end of every phase and whenever a deviation or open ques
   | Held-out 2 (18 labels, `HELDOUT` in `tests/state_labels.py`) | 94%, #1 67% | 100%, #1 78% |
   | Fresh set 3 (15 labels, 5 new sites, run once after the fix, not saved) | – | 100%, #1 80%, top-3 100% |
 
+### Phase 4: End-to-end loop (branch `phase-4/agent-loop`)
+- Built: `clev/llm/` (`OpenAIClient`: Responses API + structured outputs, token usage, cost from `pricing.py`),
+  `clev/planner/` (`LLMPlanner`: plan with start URL, replan, write_text; prompts mark page text untrusted),
+  `clev/decide/llm_decider.py` (label-constrained choice), `clev/decide/mock.py`, `clev/safety/` (destructive-click
+  confirmation, credential-field refusal, domain allowlist), `clev/core/loop.py` (`Agent`), `clev run` wired up.
+- Loop: plan -> open start URL -> each step observe -> `build_state` -> decide -> gate -> execute -> trace. Replans on
+  NONE_OF_THESE/STUCK, 3 failed actions in a row, or the same action 3x; gives up after `MAX_REPLANS`. Typing a
+  subgoal's quoted value completes it without another decider call. Ctrl+C still writes an `end` record.
+- Live results (`--decider llm`, planner and decider `gpt-6-luna`, headless):
+
+  | Task | Result | Steps | Time | Cost |
+  |---|---|---|---|---|
+  | search Wikipedia for Karachi and open the article (**done-when**) | ✅ ends on "Karachi - Wikipedia" | 4 | 13.0 s | $0.0013 |
+  | open the Muscat article on Wikipedia and go to its History section | ✅ | 2 | 8.0 s | $0.0009 |
+
+  LLM decisions take 1.6–2.7 s per step (~85% of step time): the part Jev should replace. Traces are ~34 KB/step
+  (was ~1 MB on heavy pages).
+- Found live: Wikipedia's portal search redirects straight to the article, so observing mid-navigation crashed.
+  The observer now retries after the page loads, and browser errors surface as `ObservationError`.
+- Run: `uv run clev run "search Wikipedia for Karachi and open the article" --decider llm`.
+
 ## Deviations from the plan
 - Added types `Option`, `SerializedState`, `StepRecord` and a `Tracer` protocol (the plan referenced
   but didn't define them).
 - `.env.example`: comments sit on their own lines (inline comments can leak into values). Added `TRACE_DIR`.
-- `MAX_OPTIONS` validated ≤ 248 so the 7 global options fit Jev's 255 limit.
+- `MAX_OPTIONS` validated ≤ 247 so the 8 global options (7 in the plan + `PRESS_ENTER`) fit Jev's 255 limit.
 - Repo root is `clev-cu/`, with the `clev/` package inside.
 - Observer uses one in-page DOM walk, not Playwright's accessibility snapshot + DOM merge. Playwright no longer
   exposes a handle-bearing AX snapshot, and per-node CDP lookups are too slow for 5k nodes. Roles and names are a
@@ -75,6 +96,20 @@ Update this file at the end of every phase and whenever a deviation or open ques
     elements use numbers. `SUBGOAL_DONE`/`NONE_OF_THESE`/`STUCK` carry no action; the loop interprets them.
   - Token counts are estimated at 3.5 chars/token (no Jev tokenizer yet). Re-check against real Jev usage in Phase 5.
   - Interactive allowlist also includes menuitemcheckbox/menuitemradio/spinbutton/listbox/treeitem.
+- **Phase 4:**
+  - `Planner.plan()` returns a `Plan` (`start_url` + subgoals) instead of a bare list: the browser starts blank,
+    and a new `goto` action (planner-only, never a decider option, checked by the allowlist) opens the site.
+  - 8th global option `PRESS_ENTER`: submitting a search box is common and no element represents it.
+  - `Decision.action` is optional (None for SUBGOAL_DONE / NONE_OF_THESE / STUCK). `SerializedState.elements`
+    maps option labels to elements (not traced). `StepRecord` gained `event` (plan/step/replan/end), `subgoals`,
+    `note`, `cost_usd`, `latency_ms`; `observation` is optional and trimmed to the option elements unless
+    `TRACE_FULL_OBSERVATIONS=true`.
+  - Declining a destructive action, a credential field or an off-allowlist page **ends** the run (plan says
+    "pause and ask" / "hand control back"): safest default until there's a hand-back UI.
+  - `--dry-run` advances one subgoal per decision, since nothing changes on screen.
+  - **Anthropic adapter not built** (no key to test it live). `LLM_PROVIDER=anthropic` errors clearly. The
+    `LLMClient` protocol is ready for it.
+  - `clev run` now runs the agent; `--show-config` prints the config (the old Phase 1 behaviour).
 - Not covered yet: iframes (same-origin iframe content is skipped) and closed shadow roots.
 - Observer emits interactive elements plus `heading`/`alert`/`status` for context; Phase 3 filters.
   `visible` means rendered (non-zero size, not hidden), so off-screen elements count as visible.
@@ -91,7 +126,8 @@ Update this file at the end of every phase and whenever a deviation or open ques
 ## Open questions
 - [x] Python 3.14 works with Playwright 1.63 (Chromium 153). No pin needed.
 - [x] Git: commits on `master`, remote `mustafahk27/clev-cu`, author `mustafahk27`, one commit per section.
-- [ ] Is `gpt-6-luna` good enough as the planner? Measure in Phase 4; fall back to `gpt-6-sol` for planning only.
+- [x] `gpt-6-luna` as planner: fine on both live tasks (sensible subgoals, quoted values, direct start URLs).
+  Re-check on harder tasks in Phase 7.
 - [ ] Cheaper still: try `gpt-5-nano` ($0.05/1M in) as escalation model in the Phase 6 sweep.
 - [ ] "10x cheaper" goal at risk: Jev input ($42/B = $0.042/1M) is only ~2.4x cheaper than
   `gpt-6-luna` ($0.10/1M), so a luna-only baseline costs about the same as Clev (~$0.012 vs ~$0.009 per task, est.).
@@ -100,17 +136,20 @@ Update this file at the end of every phase and whenever a deviation or open ques
 - [ ] **Gmail-like fixture missing.** Gmail needs login (and a real inbox must never go in git); the public
   webmail demos tried (Mailpit, Roundcube) didn't load. Options: (a) a synthetic inbox page in `tests/fixtures/pages/`,
   (b) a public webmail demo you know, (c) skip it; WebArena has no mail app anyway.
-- [ ] Trace size: full observations are ~1 MB/step on heavy pages (Phase 1 benchmark). Moved to Phase 4, where
-  StepRecords get built: trace only the serialized state plus the chosen element, and the full observation only
-  when it changes.
-- [ ] **For Phase 4:** pages replace elements after actions. Clicking Wikipedia's search box swaps the
-  `searchbox` for a new `combobox` node, so the old id goes stale. The loop must re-observe before every action
-  (never reuse ids across actions), and history/loop detection should match elements by name, not id or role.
-  `clev observe` does this with `find_same()`; move it into `clev/state/` in Phase 3/4.
+- [x] Trace size: steps keep only the option elements (~34 KB/step live, was ~1 MB). Full pages with
+  `TRACE_FULL_OBSERVATIONS=true`.
+- [x] Element replacement: the loop re-observes before every step and never reuses ids; loop detection
+  compares role + name, not ids.
 - [ ] Ranking recall on our own labels is optimistic: the tuned set was used to set weights, and held-out set 2
   shaped the recall fix. Set 3 (15 labels) is the most honest number so far. Phase 6 (Mind2Web) is the real check. Known weak spots: repeated names (3 identical "Add to basket"),
   placeholder-only names ("name@example.com" for an email field).
 - [ ] `<select>` dropdowns are `combobox` + `click`, but choosing an option needs Playwright's `select_option`.
-  Add a `select` action kind in Phase 4 if tasks need it. File inputs (`upload picture`) aren't supported either.
+  Not needed by the Phase 4 tasks; add a `select` action when a WebArena task needs it. File uploads aren't
+  supported either.
+- [ ] **For Phase 5:** after a click, the LLM spends a whole step (~2 s) just to answer SUBGOAL_DONE. Ask Jev's
+  `subgoal_complete` in the same call as `next_action` so completion costs nothing extra.
+- [ ] Anthropic `LLMClient` adapter (deferred from Phase 4; needs a key to test live).
+- [ ] Safety word lists err on the side of asking ("Payment methods" link counts as destructive). Tune if it
+  gets annoying; never loosen the credential rule.
 - [x] Jev API: read TypeSafe's docs (2026-09-25). Shapes, limits, pricing and 6 design consequences are in
   CLEV_PLAN.md §8 under "Confirmed from TypeSafe's docs". Pricing matches the plan ($42/B input, output free).

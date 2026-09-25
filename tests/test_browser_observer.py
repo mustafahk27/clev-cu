@@ -148,3 +148,16 @@ async def test_article_context_and_id_fallback_names(browser_session, open_page)
     baskets = [e.context for e in obs.elements if e.name == "Add to basket"]
     assert baskets == ['article "Tipping the Velvet"', 'article "Soumission"']
     assert any(e.name == "date of birth" and e.role == "textbox" for e in obs.elements)
+
+
+async def test_observe_retries_when_the_page_navigates_mid_read(browser_session, site):
+    target = site.add("landed.html", "<button>Landed</button>", title="Landed")
+    # Navigates away shortly after load, like a search that redirects to an article.
+    await browser_session.goto(
+        site.add("redirect.html", f"<script>setTimeout(() => location = '{target}', 30)</script>")
+    )
+    observer = BrowserObserver(browser_session)
+    for _ in range(5):  # at least one read should land on the redirect
+        obs = await observer.observe()
+        await browser_session.page.wait_for_timeout(10)
+    assert obs.title == "Landed"
