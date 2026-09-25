@@ -28,16 +28,25 @@ class Settings(BaseSettings):
 
     confidence_threshold: float = Field(0.6, ge=0.0, le=1.0)
     margin: float = Field(0.1, ge=0.0, le=1.0)
-    max_options: int = Field(200, ge=1, le=248)  # Jev max is 255; leave room for globals
+    max_options: int = Field(200, ge=1, le=247)  # Jev max is 255; leave room for 8 globals
     token_budget: int = Field(24000, gt=0)
     max_steps: int = Field(50, gt=0)
 
     headless: bool = False  # show the browser by default; tests and evals run headless
+    allowed_domains: str = ""  # comma-separated; empty = any. Sub-domains match ("wikipedia.org")
+    max_replans: int = Field(3, ge=0)
+    llm_reasoning_effort: str = "low"  # sent to reasoning models; "" to omit
+    llm_timeout_s: float = Field(60.0, gt=0)
+    trace_full_observations: bool = False  # default traces keep only elements shown as options
     confirm_destructive: bool = True
     dry_run: bool = False
 
     jev_price_per_billion_input: float = 42.0
     trace_dir: Path = Path("traces")
+
+    @property
+    def domain_allowlist(self) -> list[str]:
+        return [d.strip().lower() for d in self.allowed_domains.split(",") if d.strip()]
 
     def redacted(self) -> dict:
         """Config as JSON-safe dict with API keys replaced by set/unset."""
