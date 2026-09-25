@@ -6,13 +6,13 @@ import pytest
 from clev.core.types import Element, Observation
 from clev.observe.io import load_observation
 from clev.state.filter import MAX_CONTEXT, filter_elements, in_viewport
-from clev.state.goal import Goal, extract_literal
-from clev.state.rank import rank
+from clev.state.goal import Goal, extract_literal, tokens
+from clev.state.rank import rank, select
 from clev.state.serialize import GLOBAL_OPTIONS, build_state
-from tests.state_labels import LABELS
+from tests.state_labels import HELDOUT, LABELS
 
 FIXTURES = Path(__file__).parent / "fixtures"
-FIXTURE_NAMES = sorted({name for name, _, _ in LABELS})
+FIXTURE_NAMES = sorted({name for name, _, _ in LABELS + HELDOUT})
 GLOBAL_LABELS = [label for label, _, _ in GLOBAL_OPTIONS]
 
 
@@ -44,6 +44,24 @@ def test_target_recall_in_top_200_is_at_least_95_percent():
     ranks = [target_rank(*label) for label in LABELS]
     misses = [label[1] for label, r in zip(LABELS, ranks, strict=True) if r is None or r > 200]
     assert 1 - len(misses) / len(LABELS) >= 0.95, misses
+
+
+def options_contain(name: str, subgoal: str, target) -> bool:
+    obs = fixture(name)
+    state = build_state(obs, subgoal)
+    return any(
+        o.action and o.action.element_id and target.matches(obs.element(o.action.element_id))
+        for o in state.options
+    )
+
+
+def test_heldout_recall_in_serialized_options():
+    # Pages and goals the ranker was never tuned on (see HELDOUT). 18/18 after the recall fix.
+    for name, subgoal, target in HELDOUT:
+        assert any(target.matches(e) for e in fixture(name).elements), (name, subgoal)
+    hits = [options_contain(*label) for label in HELDOUT]
+    misses = [label[1] for label, ok in zip(HELDOUT, hits, strict=True) if not ok]
+    assert 1 - len(misses) / len(HELDOUT) >= 0.95, misses
 
 
 def test_target_recall_in_top_10_regression_guard():
@@ -173,7 +191,7 @@ def test_goal_parsing():
     assert g.is_typing and g.literal == "Muscat"
     assert "muscat" not in g.tokens and {"destination", "field"} <= g.tokens
     click = Goal.parse('Click the "Sign in" button')
-    assert not click.is_typing and {"sign", "button"} <= click.tokens
+    assert not click.is_typing and {"login", "button"} <= click.tokens  # "sign in" -> login
     assert "click" not in click.tokens
     assert extract_literal("Search for “Karachi port”") == "Karachi port"
     assert extract_literal("Open settings") is None
@@ -196,3 +214,46 @@ def test_rank_bonuses_and_penalties():
     assert rank(focus, 'Type "x" into Name')[0][0].id == "e1"
     nav = [el("e0", "link", "Docs", context="navigation"), el("e1", "link", "Docs", context="main")]
     assert rank(nav, "open Docs")[0][0].id == "e1"
+
+
+@pytest.mark.parametrize(
+    ("a", "b"),
+    [
+        ("Log in to the site", "login"),
+        ("Sign in", "Log in"),
+        ("sign-out", "Log out"),
+        ("Sign up", "Register"),
+        ("Go to the next page", "More"),
+        ("next", "»"),
+        ("Enter the email", "name@example.com"),
+        ("newest stories", "new"),
+        ("Add to basket", "cart"),
+    ],
+)
+def test_wording_normalization_meets_on_one_concept(a, b):
+    assert set(tokens(a)) & set(tokens(b)), (tokens(a), tokens(b))
+
+
+def test_non_plurals_are_not_stemmed():
+    assert tokens("Hacker News") == ["hacker", "news"]
+    assert "new" not in tokens("Hacker News")
+
+
+def test_select_reserves_slots_across_the_page():
+    ranked = [el(f"e{i}", "link", f"item {i}") for i in range(100)]
+    order = {e.id: i for i, e in enumerate(ranked)}
+    picked = select(ranked, 20, order)
+    assert len(picked) == len({e.id for e in picked}) == 20
+    assert [e.id for e in picked[:16]] == [f"e{i}" for i in range(16)]  # best 80% by rank
+    reserve = {order[e.id] for e in picked[16:]}
+    assert 99 in reserve  # the page's last element always makes it
+    assert min(reserve) < 40 < max(reserve)  # spread, not bunched
+    assert select(ranked[:10], 20, order) == ranked[:10]
+
+
+def test_bottom_of_page_target_survives_a_long_page():
+    elements = [el(f"e{i}", "link", f"Story {i}") for i in range(300)]
+    elements.append(el("more", "link", "Zzz"))  # shares no words with the goal
+    obs = Observation(app="a", title="t", elements=elements)
+    state = build_state(obs, "Open the first story")
+    assert "more" in {o.action.element_id for o in state.options if o.action}

@@ -6,7 +6,7 @@ import math
 
 from clev.core.types import Action, Element, Observation, Option, SerializedState
 from clev.state.filter import filter_elements
-from clev.state.rank import is_editable, rank
+from clev.state.rank import is_editable, rank, select
 
 # (label, line shown to the decider, action). Actions of None are control signals for the loop.
 GLOBAL_OPTIONS: list[tuple[str, str, Action | None]] = [
@@ -72,13 +72,14 @@ def build_state(
     """Filter, rank, keep the top `max_options`, and render within `token_budget` tokens.
 
     Options are listed in page order (reads like the screen); ranking only decides which make
-    the cut. Over budget: first tighten names to 60 chars, then drop the lowest-ranked options.
+    the cut, with a reserve spread across the page (see `select`). Over budget: first tighten
+    names to 60 chars, then drop options from the end of the priority list.
     """
     filtered = filter_elements(obs)
-    ranked = [e for e, _ in rank(filtered.candidates, subgoal, obs.viewport)]
-    keep = ranked[:max_options]
-    head = header(obs, subgoal, done or [], filtered.context)
     order = {e.id: i for i, e in enumerate(obs.elements)}
+    ranked = [e for e, _ in rank(filtered.candidates, subgoal, obs.viewport)]
+    keep = select(ranked, max_options, order)
+    head = header(obs, subgoal, done or [], filtered.context)
 
     name_cap = NAME_CAP
     while True:

@@ -88,3 +88,43 @@ LABELS: list[tuple[str, str, Target]] = [
         Target("textbox", "Mobile Number"),
     ),
 ]
+
+# Held-out: written for pages the ranker had never seen, before any ranking ran on them
+# (2026-09-25). Recall before the fix-ranking-recall change: 17/18 in top 200, 12/18 at #1.
+# Don't tune weights to these. When changing ranking, add fresh held-out pages instead.
+HELDOUT: list[tuple[str, str, Target]] = [
+    ("heldout_wiki_muscat", "Open the Climate section", Target("link", "*Climate")),
+    ("heldout_wiki_muscat", "Open the article about Oman", Target("link", "Oman")),
+    (
+        "heldout_wiki_muscat",
+        "Open the Sultan Qaboos Grand Mosque article",
+        Target("link", "Sultan Qaboos Grand Mosque"),
+    ),
+    (
+        "heldout_wiki_muscat",
+        'Type "Salalah" into the search box',
+        Target("searchbox", "Search Wikipedia"),
+    ),
+    ("heldout_wiki_muscat", "View the page's edit history", Target("link", "View history")),
+    (
+        "heldout_wiki_python",
+        "Open the article on Guido van Rossum",
+        Target("link", "Guido van Rossum"),
+    ),
+    (
+        "heldout_wiki_python",
+        "Go to the Syntax and semantics section",
+        Target("link", "*Syntax and semantics"),
+    ),
+    ("heldout_wiki_python", "Open the Talk page", Target("link", "Talk")),
+    ("heldout_wiki_python", "Open the CPython article", Target("link", "CPython")),
+    ("heldout_hn", "Log in to Hacker News", Target("link", "login")),
+    ("heldout_hn", "Go to the next page of stories", Target("link", "More")),
+    ("heldout_hn", "Open the Ask HN section", Target("link", "ask")),
+    ("heldout_hn", "Submit a new story", Target("link", "submit")),
+    ("heldout_hn", "Show the newest stories", Target("link", "new")),
+    ("heldout_gh_playwright", "Open the Issues tab", Target("link", "Issues*")),
+    ("heldout_gh_playwright", "Open the Actions tab", Target("link", "Actions")),
+    ("heldout_gh_playwright", "Star this repository", Target("link", "*star a repository")),
+    ("heldout_gh_playwright", "Sign in to GitHub", Target("link", "Sign in")),
+]

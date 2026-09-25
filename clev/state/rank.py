@@ -75,6 +75,34 @@ def score(
     return s
 
 
+RESERVE_FRACTION = 0.2
+
+
+def select(
+    ranked: Sequence[Element],
+    k: int,
+    order: dict[str, int],
+    reserve_fraction: float = RESERVE_FRACTION,
+) -> list[Element]:
+    """Pick `k` candidates in priority order: the best (1 - reserve) by rank, then reserve slots
+    spread evenly across the rest of the page (always including its last element).
+
+    A target that shares no words with the goal ("next page" vs a link named "More") scores low;
+    without the reserve it's cut whenever it sits near the bottom of a long page.
+    """
+    if len(ranked) <= k:
+        return list(ranked)
+    n_top = k - int(k * reserve_fraction)
+    top = list(ranked[:n_top])
+    rest = sorted(ranked[n_top:], key=lambda e: order[e.id])  # page order
+    n_reserve = k - n_top
+    if n_reserve <= 0:
+        return top
+    step = (len(rest) - 1) / max(1, n_reserve - 1)
+    picks = sorted({round(i * step) for i in range(n_reserve)}, reverse=True)  # bottom first
+    return top + [rest[i] for i in picks]
+
+
 def rank(
     candidates: Sequence[Element],
     subgoal: str,

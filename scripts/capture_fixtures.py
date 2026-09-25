@@ -38,6 +38,17 @@ SITES: dict[str, list[str]] = {
     ],
 }
 
+# Held-out pages: labels in tests/state_labels.py HELDOUT were written before any ranking ran on
+# them. Don't tune ranking weights against these; add new held-out pages instead.
+SITES.update(
+    {
+        "heldout_wiki_muscat": ["https://en.wikipedia.org/wiki/Muscat"],
+        "heldout_wiki_python": ["https://en.wikipedia.org/wiki/Python_(programming_language)"],
+        "heldout_hn": ["https://news.ycombinator.com/"],
+        "heldout_gh_playwright": ["https://github.com/microsoft/playwright"],
+    }
+)
+
 BLOCKED = ("captcha", "just a moment", "attention required", "access denied", "robot")
 
 
