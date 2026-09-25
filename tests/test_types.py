@@ -83,6 +83,8 @@ def test_protocols_are_structural():
         async def replan(self, task, done, obs, reason):
             return []
 
+        cost_usd = 0.0
+
     class FakeExecutor:
         async def execute(self, action, obs):
             return None

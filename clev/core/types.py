@@ -10,7 +10,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-ActionKind = Literal["click", "type", "key", "scroll", "back", "wait", "done", "fail"]
+ActionKind = Literal["click", "type", "key", "scroll", "back", "wait", "goto", "done", "fail"]
 DecidedBy = Literal["jev", "llm", "mock"]
 
 
@@ -45,6 +45,7 @@ class Action(BaseModel):
     text: str | None = None  # filled by planner for "type"
     key: str | None = None  # e.g. "cmd+enter"
     direction: Literal["up", "down"] | None = None
+    url: str | None = None  # for "goto": only the planner's start URL, never a decider choice
 
 
 class Option(BaseModel):
@@ -65,13 +66,14 @@ class SerializedState(BaseModel):
     text: str
     options: list[Option]
     token_estimate: int = 0
+    elements: dict[str, Element] = Field(default_factory=dict)  # option label -> element
 
     def option(self, label: str) -> Option | None:
         return next((o for o in self.options if o.label == label), None)
 
 
 class Decision(BaseModel):
-    action: Action
+    action: Action | None  # None for control choices: SUBGOAL_DONE, NONE_OF_THESE, STUCK
     confidence: float  # probability of the chosen option
     probs: dict[str, float] = Field(default_factory=dict)  # option label -> probability
     decided_by: DecidedBy
@@ -80,13 +82,22 @@ class Decision(BaseModel):
     chosen_label: str | None = None
 
 
+class Plan(BaseModel):
+    """Planner output: where to start and the ordered subgoals."""
+
+    start_url: str | None = None
+    subgoals: list[str]
+
+
 class StepRecord(BaseModel):
-    """One control-loop step, written as a single JSONL line by the tracer."""
+    """One trace line: a control-loop step, or a run event (plan, replan, end)."""
 
     run_id: str
     step: int
     subgoal: str
-    observation: Observation
+    event: Literal["plan", "step", "replan", "end"] = "step"
+    # Traces keep only the elements that became options (plus the chosen one), not the whole page.
+    observation: Observation | None = None
     state_text: str | None = None
     decision: Decision | None = None
     escalated: bool = False
@@ -96,4 +107,8 @@ class StepRecord(BaseModel):
     executed: bool = False
     blocked_by_safety: str | None = None
     error: str | None = None
+    subgoals: list[str] | None = None  # plan / replan events
+    note: str | None = None  # e.g. replan reason, end result
+    cost_usd: float = 0.0  # all model calls made in this step (decider, planner, write_text)
+    latency_ms: float = 0.0  # whole step, observe to executed
     timestamp: float = Field(default_factory=time.time)
