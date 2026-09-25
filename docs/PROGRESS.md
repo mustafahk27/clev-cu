@@ -42,6 +42,16 @@ Update this file at the end of every phase and whenever a deviation or open ques
 - Results on 31 labeled steps: recall@1 81%, @5 100%, @200 100% (criterion ≥95%). Largest serialized state:
   Wikipedia at ~5.2K tokens (budget 24K). `build_state` takes ~10 ms on the 4.7K-element Wikipedia page.
 - Run: `uv run clev state tests/fixtures/wikipedia.json.gz "Open the History section"`, `uv run pytest -q`.
+- Follow-up fix (branch `phase-3/fix-ranking-recall`, 2026-09-25): a check on **unseen** pages found one miss (Hacker
+  News "next page" -> link "More", no shared words, cut at rank 221/230). Fixed with wording normalization
+  (log in/login, next/more/», newest/new, basket/cart, email placeholders) and 20% reserve slots spread across the
+  page. Recall in the serialized options, and target ranked #1:
+
+  | Label set | Before | After |
+  |---|---|---|
+  | Tuned (31 labels) | 100%, #1 81% | 100%, #1 84% |
+  | Held-out 2 (18 labels, `HELDOUT` in `tests/state_labels.py`) | 94%, #1 67% | 100%, #1 78% |
+  | Fresh set 3 (15 labels, 5 new sites, run once after the fix, not saved) | – | 100%, #1 80%, top-3 100% |
 
 ## Deviations from the plan
 - Added types `Option`, `SerializedState`, `StepRecord` and a `Tracer` protocol (the plan referenced
@@ -97,11 +107,10 @@ Update this file at the end of every phase and whenever a deviation or open ques
   `searchbox` for a new `combobox` node, so the old id goes stale. The loop must re-observe before every action
   (never reuse ids across actions), and history/loop detection should match elements by name, not id or role.
   `clev observe` does this with `find_same()`; move it into `clev/state/` in Phase 3/4.
-- [ ] Ranking recall is optimistic: labels were written after seeing the fixtures and weights tuned on them.
-  Phase 6 (Mind2Web) is the unbiased check. Known weak spots: repeated names (3 identical "Add to basket"),
+- [ ] Ranking recall on our own labels is optimistic: the tuned set was used to set weights, and held-out set 2
+  shaped the recall fix. Set 3 (15 labels) is the most honest number so far. Phase 6 (Mind2Web) is the real check. Known weak spots: repeated names (3 identical "Add to basket"),
   placeholder-only names ("name@example.com" for an email field).
 - [ ] `<select>` dropdowns are `combobox` + `click`, but choosing an option needs Playwright's `select_option`.
   Add a `select` action kind in Phase 4 if tasks need it. File inputs (`upload picture`) aren't supported either.
-- [ ] Phase 3 branched from `phase-2/browser-observer` (Phase 2 isn't merged into master yet). Merge phase 2 first.
 - [x] Jev API: read TypeSafe's docs (2026-09-25). Shapes, limits, pricing and 6 design consequences are in
   CLEV_PLAN.md §8 under "Confirmed from TypeSafe's docs". Pricing matches the plan ($42/B input, output free).
