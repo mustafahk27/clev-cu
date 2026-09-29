@@ -18,9 +18,10 @@ uv run clev observe https://en.wikipedia.org/wiki/Karachi            # list elem
 uv run clev observe https://en.wikipedia.org/wiki/Karachi --click e33 # click one by id
 uv run clev observe https://en.wikipedia.org/wiki/Karachi --click e18 --type Muscat --press enter --headed --hold 3
 uv run clev state tests/fixtures/wikipedia.json.gz "Open the History section"  # what the decider sees
+uv sync --extra eval && uv run clev eval mind2web --n 500   # offline eval report
 uv run pytest            # offline tests
 uv run pytest -m live    # tests that hit real sites
 ```
 
-Status: Phase 5 (Jev decides each step; the LLM plans and handles unsure steps). The control loop lands in Phase 4.
+Status: Phase 6 (offline eval). Mind2Web results: [docs/results/mind2web-500/report.md](docs/results/mind2web-500/report.md). The control loop lands in Phase 4.
 Progress and open questions: [docs/PROGRESS.md](docs/PROGRESS.md).

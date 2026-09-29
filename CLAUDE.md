@@ -46,6 +46,7 @@ uv run clev state tests/fixtures/<name>.json.gz "<subgoal>"  # serialized option
 uv run python scripts/capture_fixtures.py     # refresh real-site fixtures (public pages only)
 uv run pytest -m live                         # tests that hit real sites
 uv run clev replay traces/<run>.jsonl          # steps, who decided, escalations, summary
+uv sync --extra eval && uv run clev eval mind2web --n 500   # Mind2Web report (answers cached in evals/cache/)
 ```
 
 ## Code conventions
@@ -55,6 +56,7 @@ uv run clev replay traces/<run>.jsonl          # steps, who decided, escalations
 - Tests live in `tests/`, and saved observation fixtures go in `tests/fixtures/`. Tests must not hit
   the network or real APIs. Mark live tests `@pytest.mark.live` and skip them by default.
 - ruff line length 100.
+- Never tune ranking/thresholds on the Mind2Web test steps or `HELDOUT` fixtures; use train-split data or new pages.
 
 ## Slash commands (in `.claude/commands/`)
 - `/next-phase`: start the next phase from PROGRESS.md
