@@ -96,7 +96,7 @@ def build_state(
         if tokens <= token_budget or (not keep and name_cap == NAME_CAP_TIGHT):
             elements = {str(i): e for i, e in enumerate(chosen, 1)}
             return SerializedState(
-                text=text, options=options, token_estimate=tokens, elements=elements
+                text=text, options=options, token_estimate=tokens, elements=elements, header=head
             )
         if name_cap != NAME_CAP_TIGHT:
             name_cap = NAME_CAP_TIGHT
