@@ -28,6 +28,10 @@ class Settings(BaseSettings):
 
     confidence_threshold: float = Field(0.6, ge=0.0, le=1.0)
     margin: float = Field(0.1, ge=0.0, le=1.0)
+    jev_model: str = "jev-1.13.0"  # pinned for reproducible evals; "jev-latest" follows releases
+    jev_timeout_s: float = Field(15.0, gt=0)
+    done_threshold: float = Field(0.7, ge=0.0, le=1.0)  # Jev subgoal_complete -> SUBGOAL_DONE
+    error_threshold: float = Field(0.7, ge=0.0, le=1.0)  # Jev error_visible -> replan
     max_options: int = Field(200, ge=1, le=247)  # Jev max is 255; leave room for 8 globals
     token_budget: int = Field(24000, gt=0)
     max_steps: int = Field(50, gt=0)
