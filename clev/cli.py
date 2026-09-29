@@ -302,10 +302,100 @@ def state(
 
 
 @app.command(name="eval")
-def eval_(benchmark: Annotated[str, typer.Argument(help="mind2web | webarena")]) -> None:
-    """Run an evaluation. (Phases 6-7.)"""
-    typer.echo(f"Eval '{benchmark}' not implemented yet.", err=True)
-    raise typer.Exit(1)
+def eval_(
+    benchmark: Annotated[str, typer.Argument(help="mind2web (webarena arrives in Phase 7)")],
+    n: Annotated[int, typer.Option(help="Steps to evaluate.")] = 500,
+    llms: Annotated[str, typer.Option(help="Comma-separated LLM baselines.")] = "",
+    jev_options: Annotated[str, typer.Option(help="Option counts to run Jev at.")] = "50,100,200",
+    concurrency: Annotated[int, typer.Option(help="Parallel model calls.")] = 8,
+    seed: Annotated[int, typer.Option(help="Sampling seed.")] = 0,
+    out: Annotated[Path | None, typer.Option(help="Report directory.")] = None,
+    planned: Annotated[
+        bool, typer.Option(help="Also run the live-style variant (planner writes subgoals).")
+    ] = True,
+) -> None:
+    """Offline step-level eval: Jev alone, Jev + escalation, and LLM-only baselines."""
+    import asyncio
+    import time
+
+    if benchmark != "mind2web":
+        typer.echo(f"Eval '{benchmark}' not implemented yet (webarena: Phase 7).", err=True)
+        raise typer.Exit(1)
+    try:
+        from evals.mind2web.run import run_all
+        from evals.report import Policy, write_report
+    except ImportError as e:
+        raise typer.BadParameter(f"eval extras missing ({e}); run: uv sync --extra eval") from e
+
+    settings = load_settings()
+    models = [m.strip() for m in (llms or f"{settings.escalation_model},gpt-6-sol").split(",") if m]
+    if settings.escalation_model not in models:
+        models.insert(0, settings.escalation_model)  # needed to simulate escalation
+    counts = sorted({int(k) for k in jev_options.split(",") if k.strip()} | {settings.max_options})
+    runs = [("jev", k) for k in counts] + [(m, settings.max_options) for m in models]
+    out = out or Path("evals/results") / f"mind2web-{time.strftime('%Y%m%d-%H%M%S')}"
+
+    async def main():
+        from clev.decide.jev import JevDecider, make_client
+        from clev.decide.llm_decider import LLMDecider
+
+        if not settings.jev_api_key:
+            raise typer.BadParameter("JEV_API_KEY is not set")
+        client = make_client(
+            settings.jev_api_key.get_secret_value(),
+            settings.jev_base_url,
+            settings.jev_model,
+            settings.jev_timeout_s,
+        )
+        llm = make_llm(settings)
+        jev = JevDecider(client, settings.jev_price_per_billion_input)
+        try:
+            prepared, results = await run_all(
+                n,
+                runs,
+                lambda name: jev if name == "jev" else LLMDecider(llm, name),
+                concurrency,
+                seed,
+                typer.echo,
+            )
+            plan_results = None
+            if planned:
+                from evals.mind2web.planned import run_planned
+                from evals.mind2web.run import load_cache
+
+                fallback = LLMDecider(llm, settings.escalation_model)
+                plan_results = await run_planned(
+                    prepared,
+                    llm,
+                    settings.planner_model,
+                    {"jev": jev, settings.escalation_model: fallback},
+                    settings.max_options,
+                    load_cache(),
+                    concurrency,
+                    typer.echo,
+                )
+            return prepared, results, plan_results
+        finally:
+            await jev.aclose()
+
+    prepared, results, plan_results = asyncio.run(main())
+    policy = Policy(
+        settings.confidence_threshold,
+        settings.margin,
+        settings.done_threshold,
+        settings.error_threshold,
+    )
+    write_report(
+        out,
+        prepared,
+        results,
+        settings.escalation_model,
+        policy,
+        settings.max_options,
+        plan_results,
+    )
+    typer.echo(f"\nReport: {out / 'report.md'}")
+    typer.echo((out / "report.md").read_text().split("## Pipeline ceiling")[0])
 
 
 if __name__ == "__main__":
