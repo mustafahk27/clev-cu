@@ -12,7 +12,8 @@ See [CLEV_PLAN.md](CLEV_PLAN.md) for the full design and build phases.
 uv sync
 uv run playwright install chromium
 cp .env.example .env   # fill in API keys
-uv run clev run "search Wikipedia for Karachi and open the article" --decider llm  # the agent
+uv run clev run "search Wikipedia for Karachi and open the article"   # Jev + LLM fallback (default)
+uv run clev replay traces/<run>.jsonl                                   # who decided each step
 uv run clev observe https://en.wikipedia.org/wiki/Karachi            # list elements
 uv run clev observe https://en.wikipedia.org/wiki/Karachi --click e33 # click one by id
 uv run clev observe https://en.wikipedia.org/wiki/Karachi --click e18 --type Muscat --press enter --headed --hold 3
@@ -21,5 +22,5 @@ uv run pytest            # offline tests
 uv run pytest -m live    # tests that hit real sites
 ```
 
-Status: Phase 4 (end-to-end agent, LLM decider). Jev arrives in Phase 5. The control loop lands in Phase 4.
+Status: Phase 5 (Jev decides each step; the LLM plans and handles unsure steps). The control loop lands in Phase 4.
 Progress and open questions: [docs/PROGRESS.md](docs/PROGRESS.md).

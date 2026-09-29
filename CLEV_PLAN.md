@@ -466,6 +466,11 @@ ESCALATION_MODEL=gpt-6-luna       # anthropic: claude-haiku-4-5-20251001
 DECIDER=jev
 CONFIDENCE_THRESHOLD=0.6
 MARGIN=0.1
+JEV_MODEL=jev-1.13.0
+JEV_TIMEOUT_S=15
+# Jev's subgoal_complete / error_visible probabilities that end a subgoal / trigger a replan
+DONE_THRESHOLD=0.7
+ERROR_THRESHOLD=0.7
 MAX_OPTIONS=200            # capped at 247 so the 8 global options fit in Jev's 255
 TOKEN_BUDGET=24000
 MAX_STEPS=50

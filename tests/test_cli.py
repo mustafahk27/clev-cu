@@ -42,11 +42,13 @@ def test_state_prints_serialized_options():
     assert "'Reading'" in best
 
 
-def test_run_refuses_jev_until_phase_5(monkeypatch, tmp_path):
+def test_run_jev_needs_jev_key(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.delenv("JEV_API_KEY", raising=False)
     result = runner.invoke(app, ["run", "x", "--decider", "jev"])
-    assert result.exit_code == 2
-    assert "Phase 5" in result.output
+    assert result.exit_code != 0
+    assert "JEV_API_KEY" in result.output
 
 
 def test_run_needs_openai_key(monkeypatch, tmp_path):

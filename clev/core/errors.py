@@ -13,6 +13,10 @@ class ObservationError(ClevError):
     """The UI couldn't be read (e.g. the page kept navigating)."""
 
 
+class DeciderError(ClevError):
+    """The decision model (Jev) failed after its SDK's retries."""
+
+
 class LLMError(ClevError):
     """A model call failed or returned something unusable (after the adapter's retries)."""
 
