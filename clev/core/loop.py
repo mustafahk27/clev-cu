@@ -177,6 +177,9 @@ class Agent:
             observation=self._trace_view(obs, state, decision),
             state_text=state.text,
             decision=decision,
+            escalated=decision.escalated,
+            escalation_reason=decision.escalation_reason,
+            checks=decision.checks,
         )
         replan_reason = await self._act(run, rec, obs, subgoal, decision)
 
@@ -196,10 +199,13 @@ class Agent:
         label, action = decision.chosen_label, decision.action
         if label == "SUBGOAL_DONE":
             run.done.append(run.subgoals.pop(0))
-            rec.note = "subgoal done"
+            rec.note = "subgoal done" + (
+                f" ({decision.escalation_reason})" if decision.escalation_reason else ""
+            )
             return None
         if action is None or label in ("NONE_OF_THESE", "STUCK"):
-            return f"decider chose {label} for {subgoal!r}"
+            why = f": {decision.escalation_reason}" if decision.escalation_reason else ""
+            return f"decider chose {label} for {subgoal!r}{why}"
 
         goal = Goal.parse(subgoal)
         if action.kind == "type" and action.text is None:
@@ -274,7 +280,11 @@ class Agent:
             else rec.note or ("ok" if rec.executed else "")
         )
         who = d.decided_by if d else "-"
-        return f"[{rec.step:>2}] {who:<4} {rec.subgoal[:50]:<50} -> {what}  ({outcome})"
+        if d and d.escalated:
+            outcome += f"; escalated: {d.escalation_reason}"
+        conf = f" p={d.confidence:.2f}" if d and d.decided_by == "jev" else ""
+        ms = f" {d.latency_ms:.0f}ms" if d else ""
+        return f"[{rec.step:>2}] {who:<4}{conf}{ms} {rec.subgoal[:45]:<45} -> {what}  ({outcome})"
 
     def _record(self, rec: StepRecord) -> None:
         self.tracer.record(rec)

@@ -181,3 +181,23 @@ async def test_repeat_detection():
     assert result.success
     assert "repeated the same action 3 times" in planner.replan_reasons[0]
     assert len(site.executed) == 3
+
+
+async def test_escalation_fields_reach_the_trace():
+    from clev.core.types import Decision
+
+    class Escalated(MockDecider):
+        async def decide(self, state, subgoal, history):
+            d = await super().decide(state, subgoal, history)
+            return d.model_copy(update={
+                "escalated": True, "escalation_reason": "low confidence 0.4 < 0.6",
+                "checks": {"subgoal_complete": 0.1},
+            })  # fmt: skip
+
+    site = wiki_site()
+    agent, tracer = make_agent(site, FakePlanner(PLAN[:1]), decider=Escalated())
+    await agent.run("task")
+    rec = next(r for r in tracer.records if r.event == "step")
+    assert rec.escalated and rec.escalation_reason == "low confidence 0.4 < 0.6"
+    assert rec.checks == {"subgoal_complete": 0.1}
+    assert isinstance(rec.decision, Decision)
