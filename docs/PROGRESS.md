@@ -10,8 +10,8 @@ Update this file at the end of every phase and whenever a deviation or open ques
 | 2 | Browser observer + executor | ✅ Done (2026-09-24) | 47 tests + 1 live, ruff clean; 4/5 fixtures |
 | 3 | State pipeline | ✅ Done (2026-09-24) | 68 tests + 1 live; recall@200 100%, @1 81% on 31 labels |
 | 4 | End-to-end loop (Mock + LLM deciders) | ✅ Done (2026-09-25) | 151 tests + 1 live; done-when task succeeds live |
-| 5 | Jev adapter | ⏳ Next | Docs read (plan §8); key in `.env` |
-| 6 | Offline eval (Mind2Web) | — | |
+| 5 | Jev adapter | ✅ Done (2026-09-29) | 168 tests + 1 live; done-when task: 4/4 steps by Jev, 0% escalated |
+| 6 | Offline eval (Mind2Web) | ⏳ Next | Waiting for go-ahead |
 | 7 | Online eval (WebArena) | — | |
 | 8 | macOS desktop mode | — | |
 | 9 | Polish and demo | — | |
@@ -74,6 +74,27 @@ Update this file at the end of every phase and whenever a deviation or open ques
   The observer now retries after the page loads, and browser errors surface as `ObservationError`.
 - Run: `uv run clev run "search Wikipedia for Karachi and open the article" --decider llm`.
 
+### Phase 5: Jev adapter (branch `phase-5/jev-adapter`)
+- Built: `clev/decide/questions.py` (next_action + subgoal_complete / error_visible / progress, one call),
+  `clev/decide/jev.py` (`typesafe-sdk` 0.7.2, `jev-1.13.0` pinned, 2 SDK retries, cost from input tokens),
+  `clev/decide/escalate.py` (`EscalatingDecider`: plan §9 rules, every escalation has a reason),
+  `clev/trace/replay.py` (`clev replay` shows who decided, Jev's confidence, escalations, latency, cost).
+  `DECIDER=jev` (Jev + LLM fallback) is the default.
+- Smoke test before building: numeric option keys ("1".."200") work; ~440 input tokens for a 5-option call.
+- Live results (headless, planner `gpt-6-luna`):
+
+  | Task | Result | Steps (Jev / LLM) | Jev median | Time | Cost |
+  |---|---|---|---|---|---|
+  | search Wikipedia for Karachi and open the article (**done-when**) | ✅ | 4 / 0 | 522 ms | 9.2 s | $0.0007 |
+  | same task, LLM decider (Phase 4, for comparison) | ✅ | 0 / 4 | (LLM 1.6–2.7 s) | 13.0 s | $0.0013 |
+  | open the Muscat article and go to its History section | ✅ | 3 / 0 | 827 ms | 8.4 s | $0.0009 |
+  | open microsoft/playwright's Issues tab on GitHub | ✅ | 3 / 0 | 447 ms | 15.5 s | $0.0008 |
+  | on Hacker News, open the Ask HN page | ✅ | 1 / 0 | 529 ms | 6.2 s | $0.0002 |
+  | Karachi task with `CONFIDENCE_THRESHOLD=0.99` (forces escalation) | ✅ | 2 / 2 | 520 ms (LLM 2.4 s) | 11.0 s | $0.0010 |
+
+  Jev decisions are ~4x faster than the LLM's. Most of the remaining cost is the single planner call.
+- Run: `uv run clev run "search Wikipedia for Karachi and open the article"`, then `uv run clev replay traces/<run>.jsonl`.
+
 ## Deviations from the plan
 - Added types `Option`, `SerializedState`, `StepRecord` and a `Tracer` protocol (the plan referenced
   but didn't define them).
@@ -110,6 +131,20 @@ Update this file at the end of every phase and whenever a deviation or open ques
   - **Anthropic adapter not built** (no key to test it live). `LLM_PROVIDER=anthropic` errors clearly. The
     `LLMClient` protocol is ready for it.
   - `clev run` now runs the agent; `--show-config` prints the config (the old Phase 1 behaviour).
+- **Phase 5:**
+  - `progress` is a yes/no ("did the last action move closer to the goal?") instead of a score: TypeSafe's docs
+    warn scores are weakly calibrated, and comparing two screens adds unrelated state (plan §8, consequence 3).
+    It's only asked once there's a previous action.
+  - The confidence threshold uses Jev's `confidence` field (computed from the whole distribution; ≈ top
+    probability at our option counts), plus the plan's margin rule on the top two probabilities.
+  - `subgoal_complete` > `DONE_THRESHOLD` becomes SUBGOAL_DONE and `error_visible` > `ERROR_THRESHOLD` becomes STUCK
+    (-> replan) **before** the escalation rules run, so completion is decided by Jev at ~0.5 s, not the LLM at ~2 s.
+  - Repeats escalate on the 3rd identical action (matched by role + name, since ids change); if the LLM repeats
+    it anyway, the loop's own 3-repeat rule replans.
+  - Escalated steps are `decided_by="llm"`; Jev's own answer is kept in `primary_choice/confidence/probs`
+    for Phase 6 calibration.
+  - Touched beyond `decide/jev.py` + `decide/escalate.py`: `Decision` gained optional fields, `SerializedState.header`,
+    the loop copies escalation info into `StepRecord`, and the CLI/replay wiring.
 - Not covered yet: iframes (same-origin iframe content is skipped) and closed shadow roots.
 - Observer emits interactive elements plus `heading`/`alert`/`status` for context; Phase 3 filters.
   `visible` means rendered (non-zero size, not hidden), so off-screen elements count as visible.
@@ -146,8 +181,15 @@ Update this file at the end of every phase and whenever a deviation or open ques
 - [ ] `<select>` dropdowns are `combobox` + `click`, but choosing an option needs Playwright's `select_option`.
   Not needed by the Phase 4 tasks; add a `select` action when a WebArena task needs it. File uploads aren't
   supported either.
-- [ ] **For Phase 5:** after a click, the LLM spends a whole step (~2 s) just to answer SUBGOAL_DONE. Ask Jev's
-  `subgoal_complete` in the same call as `next_action` so completion costs nothing extra.
+- [x] Completion after a click now costs one Jev call (~0.5 s) instead of an LLM step (~2 s).
+- [ ] Could go further: when Jev says a subgoal is complete, also ask `next_action` for the **next** subgoal in the
+  same call (TypeSafe's fan-out pattern), saving a round trip per subgoal.
+- [ ] Planner sometimes emits redundant subgoals ("Click the Issues tab" then "Open the Issues page"). Jev clears
+  them in ~0.5 s, but a prompt tweak could remove them.
+- [ ] Jev latency here is 0.4–1.1 s per call, above the plan's 70–500 ms (includes network from this machine and
+  ~200 options per call). Measure by option count in Phase 6 (the `MAX_OPTIONS` sweep).
+- [ ] No step escalated in the 5 normal live runs; the threshold (0.6) and margin (0.1) are untuned. Phase 6 tunes
+  them against accuracy and cost.
 - [ ] Anthropic `LLMClient` adapter (deferred from Phase 4; needs a key to test live).
 - [ ] Safety word lists err on the side of asking ("Payment methods" link counts as destructive). Tune if it
   gets annoying; never loosen the credential rule.
