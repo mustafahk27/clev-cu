@@ -67,6 +67,7 @@ class SerializedState(BaseModel):
     options: list[Option]
     token_estimate: int = 0
     elements: dict[str, Element] = Field(default_factory=dict)  # option label -> element
+    header: str = ""  # the text above OPTIONS: page, goal, done so far, context
 
     def option(self, label: str) -> Option | None:
         return next((o for o in self.options if o.label == label), None)
@@ -80,6 +81,14 @@ class Decision(BaseModel):
     latency_ms: float = 0.0
     cost_usd: float = 0.0
     chosen_label: str | None = None
+    # Jev's yes/no checks for this screen: subgoal_complete, error_visible, progress.
+    checks: dict[str, float] = Field(default_factory=dict)
+    escalated: bool = False
+    escalation_reason: str | None = None
+    # Jev's own answer, kept when a step is escalated (needed for calibration in Phase 6).
+    primary_choice: str | None = None
+    primary_confidence: float | None = None
+    primary_probs: dict[str, float] = Field(default_factory=dict)
 
 
 class Plan(BaseModel):
