@@ -45,9 +45,6 @@ def run(
     if mode == "desktop":
         typer.echo("Desktop mode arrives in Phase 8.", err=True)
         raise typer.Exit(2)
-    if settings.decider == "jev":
-        typer.echo("The Jev decider arrives in Phase 5; use --decider llm or mock.", err=True)
-        raise typer.Exit(2)
     try:
         ok = asyncio.run(_run(task, url, settings))
     except KeyboardInterrupt:
@@ -71,12 +68,43 @@ def make_llm(settings):
     raise typer.BadParameter(f"LLM_PROVIDER={settings.llm_provider} isn't implemented yet")
 
 
+def make_decider(settings, llm):
+    """(decider, jev) for DECIDER=mock|llm|jev. `jev` is returned so its client can be closed."""
+    from clev.decide.llm_decider import LLMDecider
+    from clev.decide.mock import MockDecider
+
+    if settings.decider == "mock":
+        return MockDecider(), None
+    fallback = LLMDecider(llm, settings.escalation_model)
+    if settings.decider == "llm":
+        return fallback, None
+    if not settings.jev_api_key:
+        raise typer.BadParameter("JEV_API_KEY is not set (see .env.example)")
+    from clev.decide.escalate import EscalatingDecider, Policy
+    from clev.decide.jev import JevDecider, make_client
+
+    jev = JevDecider(
+        make_client(
+            settings.jev_api_key.get_secret_value(),
+            settings.jev_base_url,
+            settings.jev_model,
+            settings.jev_timeout_s,
+        ),
+        settings.jev_price_per_billion_input,
+    )
+    policy = Policy(
+        confidence_threshold=settings.confidence_threshold,
+        margin=settings.margin,
+        done_threshold=settings.done_threshold,
+        error_threshold=settings.error_threshold,
+    )
+    return EscalatingDecider(jev, fallback, policy), jev
+
+
 async def _run(task: str, url: str | None, settings) -> bool:
     import asyncio
 
     from clev.core.loop import Agent
-    from clev.decide.llm_decider import LLMDecider
-    from clev.decide.mock import MockDecider
     from clev.execute.browser import BrowserExecutor
     from clev.observe.browser import BrowserObserver, BrowserSession
     from clev.planner.planner import LLMPlanner
@@ -85,9 +113,7 @@ async def _run(task: str, url: str | None, settings) -> bool:
 
     llm = make_llm(settings)
     planner = LLMPlanner(llm, settings.planner_model)
-    decider = (
-        MockDecider() if settings.decider == "mock" else LLMDecider(llm, settings.escalation_model)
-    )
+    decider, jev = make_decider(settings, llm)
 
     async def confirm(question: str) -> bool:
         return await asyncio.to_thread(typer.confirm, question, default=False)
@@ -108,26 +134,38 @@ async def _run(task: str, url: str | None, settings) -> bool:
                 run_id=tracer.run_id,
                 on_event=typer.echo,
             )
-            typer.echo(
-                f"Task: {task}  (decider={settings.decider}, planner={settings.planner_model})"
+            deciding = settings.decider + (
+                f" ({settings.jev_model}, LLM fallback {settings.escalation_model})"
+                if settings.decider == "jev"
+                else ""
             )
-            result = await agent.run(task)
-    typer.echo(
-        f"\n{'SUCCESS' if result.success else 'FAILED'}: {result.reason}\n"
-        f"steps={result.steps}  time={result.seconds:.1f}s  cost=${result.cost_usd:.4f}\n"
-        f"trace: {tracer.path}"
-    )
+            typer.echo(f"Task: {task}  (decider={deciding}, planner={settings.planner_model})")
+            try:
+                result = await agent.run(task)
+            finally:
+                if jev is not None:
+                    await jev.aclose()
+    from clev.trace.replay import summarize
+    from clev.trace.tracer import read_trace
+
+    typer.echo(f"\n{'SUCCESS' if result.success else 'FAILED'}: {result.reason}")
+    for line in summarize(list(read_trace(tracer.path))).lines()[1:]:
+        typer.echo(line)
+    typer.echo(f"trace: {tracer.path}")
     return result.success
 
 
 @app.command()
 def replay(trace: Annotated[Path, typer.Argument(exists=True, dir_okay=False)]) -> None:
-    """Print a trace step by step. (Rich rendering arrives in Phase 9.)"""
-    for rec in read_trace(trace):
-        d = rec.decision
-        who = d.decided_by if d else "-"
-        act = d.action.model_dump(exclude_none=True) if d else {}
-        typer.echo(f"[{rec.step:>3}] {who:<4} {rec.subgoal!r} -> {act}")
+    """Print a trace step by step, then a summary: who decided, escalations, latency, cost."""
+    from clev.trace.replay import step_line, summarize
+
+    records = list(read_trace(trace))
+    for rec in records:
+        typer.echo(step_line(rec))
+    typer.echo("")
+    for line in summarize(records).lines():
+        typer.echo(line)
 
 
 def format_element(e: Element) -> str:
