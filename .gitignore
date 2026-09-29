@@ -6,3 +6,6 @@ __pycache__/
 .ruff_cache/
 traces/
 dist/
+evals/data/
+evals/cache/
+evals/results/
