@@ -8,6 +8,7 @@ and report tweaks don't spend money again.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import time
 from collections.abc import Callable
@@ -18,10 +19,14 @@ from clev.core.interfaces import Decider
 from clev.core.types import Observation, SerializedState
 from clev.observe.browser import BrowserSession
 from clev.state.serialize import build_state
-from evals.mind2web.loader import Step, load_steps
+from evals.mind2web.loader import Step, load_dev_steps, load_steps
 from evals.mind2web.render import Mind2WebRenderer
 
 CACHE_FILE = Path("evals/cache/mind2web.jsonl")
+
+
+def input_hash(*parts: str) -> str:
+    return hashlib.sha1("\x1f".join(parts).encode()).hexdigest()[:12]
 
 
 @dataclass
@@ -52,10 +57,11 @@ class Answer:
     tokens: int = 0  # serialized-state estimate
     error: str | None = None
     subgoal: str | None = None  # the goal the decider was given, when not the whole task
+    input_hash: str = ""  # hash of exactly what the model saw; changes invalidate the cache
 
     @property
     def key(self) -> str:
-        return f"{self.uid}|{self.decider}|{self.max_options}"
+        return f"{self.uid}|{self.decider}|{self.max_options}|{self.input_hash}"
 
 
 async def prepare(steps: list[Step], option_counts: list[int], log=print) -> list[Prepared]:
@@ -64,7 +70,10 @@ async def prepare(steps: list[Step], option_counts: list[int], log=print) -> lis
         renderer = Mind2WebRenderer(session)
         for i, step in enumerate(steps, 1):
             r = await renderer.render(step.html, step.website, step.target_ids)
-            states = {k: build_state(r.obs, step.task, step.previous, k) for k in option_counts}
+            states = {
+                k: build_state(r.obs, step.task, step.history, k, anchor=step.last_target)
+                for k in option_counts
+            }
             candidates = states[max(option_counts)].elements
             prepared.append(
                 Prepared(
@@ -144,11 +153,13 @@ async def run_decider(
 
     async def one(p: Prepared) -> Answer:
         nonlocal done
-        key = f"{p.step.action_uid}|{name}|{k}"
+        h = input_hash(p.states[k].text)
+        key = f"{p.step.action_uid}|{name}|{k}|{h}"
         if key in cache and cache[key].error is None:
             return cache[key]
         async with sem:
             a = await decide_one(decider, name, p, k)
+        a.input_hash = h
         append_cache(a)
         done += 1
         if done % 50 == 0:
@@ -165,9 +176,10 @@ async def run_all(
     concurrency: int = 8,
     seed: int = 0,
     log: Callable[[str], None] = print,
+    dev: bool = False,
 ) -> tuple[list[Prepared], dict[tuple[str, int], list[Answer]]]:
-    """`runs` = [(decider name, max_options), ...]."""
-    steps = load_steps(n, seed)
+    """`runs` = [(decider name, max_options), ...]. `dev`: train-split steps, for tuning."""
+    steps = load_dev_steps(n, seed) if dev else load_steps(n, seed)
     log(f"Loaded {len(steps)} Mind2Web steps; rendering with the Clev observer...")
     prepared = await prepare(steps, sorted({k for _, k in runs}), log)
     cache = load_cache()

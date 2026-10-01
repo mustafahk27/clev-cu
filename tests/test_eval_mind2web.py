@@ -184,3 +184,39 @@ def test_report_includes_planned_section(tmp_path):
     assert rows["jev + planner"]["element_acc"] == 1.0
     assert rows["gpt-6-luna + planner"]["element_acc"] == 0.0
     assert rows["jev + planner"]["latency_median_ms"] == 2000  # 500 decide + 1500 plan
+
+
+@pytest.mark.parametrize(
+    ("repr_", "sentence"),
+    [
+        ("[textbox]  US City,State or Zip Code -> TYPE: 08817",
+         'Typed "08817" into textbox "US City,State or Zip Code"'),
+        ("[link]  Budget Truck -> CLICK", 'Clicked link "Budget Truck"'),
+        ("[select]  Select Pick-up Time -> SELECT: 02:30 PM",
+         'Selected "02:30 PM" in select "Select Pick-up Time"'),
+        ("[button]  Reservations -> HOVER", 'Hovered over button "Reservations"'),
+        ("[input]   -> CLICK", "Clicked input"),
+        ("garbage", "garbage"),
+    ],
+)  # fmt: skip
+def test_history_reads_as_sentences(repr_, sentence):
+    from evals.mind2web.loader import repr_to_sentence
+
+    assert repr_to_sentence(repr_) == sentence
+
+
+def test_last_target():
+    s = step("a")
+    assert s.last_target is None
+    s.previous = ["[link]  Trucks -> CLICK", "[textbox]  Zip Code -> TYPE: 1"]
+    assert s.last_target == "Zip Code"
+    assert s.history[-1] == 'Typed "1" into textbox "Zip Code"'
+
+
+def test_cache_key_includes_input_hash():
+    from evals.mind2web.run import input_hash
+
+    a = ans("a")
+    a.input_hash = input_hash("state text")
+    assert a.key.endswith("|" + input_hash("state text"))
+    assert input_hash("state text") != input_hash("other text")

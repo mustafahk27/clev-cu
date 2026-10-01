@@ -313,6 +313,9 @@ def eval_(
     planned: Annotated[
         bool, typer.Option(help="Also run the live-style variant (planner writes subgoals).")
     ] = True,
+    dev: Annotated[
+        bool, typer.Option(help="Use train-split steps (for tuning; never tune on test).")
+    ] = False,
 ) -> None:
     """Offline step-level eval: Jev alone, Jev + escalation, and LLM-only baselines."""
     import asyncio
@@ -333,7 +336,8 @@ def eval_(
         models.insert(0, settings.escalation_model)  # needed to simulate escalation
     counts = sorted({int(k) for k in jev_options.split(",") if k.strip()} | {settings.max_options})
     runs = [("jev", k) for k in counts] + [(m, settings.max_options) for m in models]
-    out = out or Path("evals/results") / f"mind2web-{time.strftime('%Y%m%d-%H%M%S')}"
+    split = "dev" if dev else "test"
+    out = out or Path("evals/results") / f"mind2web-{split}-{time.strftime('%Y%m%d-%H%M%S')}"
 
     async def main():
         from clev.decide.jev import JevDecider, make_client
@@ -357,6 +361,7 @@ def eval_(
                 concurrency,
                 seed,
                 typer.echo,
+                dev,
             )
             plan_results = None
             if planned:

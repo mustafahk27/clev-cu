@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import random
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -17,6 +18,11 @@ SHARDS = {
     "test_task": "test_task-00000-of-00005-431389419142b606.parquet",
     "test_website": "test_website-00000-of-00004-e0bfff7049abbef8.parquet",
     "test_domain": "test_domain-00000-of-00011-{suffix}.parquet",
+}
+# Training-split shards used as a dev set for tuning. Never tune on the test splits above.
+DEV_SHARDS = {
+    "train_0": "train-00000-of-00027-4d11798d7219186d.parquet",
+    "train_1": "train-00001-of-00027-2011d8e72a165f62.parquet",
 }
 COLUMNS = [
     "action_uid",
@@ -31,6 +37,7 @@ COLUMNS = [
     "target_action_index",
 ]
 CACHE = Path("evals/data/mind2web")
+_REPR = re.compile(r"^\[[^\]]*\]\s+(.*?)\s+->")
 
 
 @dataclass
@@ -47,12 +54,25 @@ class Step:
     previous: list[str]  # action_reprs before this step
 
     @property
+    def last_target(self) -> str | None:
+        """Name of the element the previous action touched: '[textbox]  Zip -> TYPE: 1' -> 'Zip'."""
+        if not self.previous:
+            return None
+        m = _REPR.match(self.previous[-1])
+        return m.group(1).strip() if m else None
+
+    @property
+    def history(self) -> list[str]:
+        """Previous actions as sentences, the way live Clev's done-list reads."""
+        return [repr_to_sentence(r) for r in self.previous]
+
+    @property
     def expected_verb(self) -> str:
         return "type" if self.op == "TYPE" else "click"
 
 
 def _shard_path(split: str) -> str:
-    name = SHARDS[split]
+    name = SHARDS.get(split) or DEV_SHARDS[split]
     if "{suffix}" in name:  # resolve the hashed file name once
         from huggingface_hub import HfFileSystem
 
@@ -108,3 +128,31 @@ def load_steps(n: int, seed: int = 0, splits: tuple[str, ...] = tuple(SHARDS)) -
         steps += [parse_row(r, split) for r in rows[:per_split]]
     random.Random(seed).shuffle(steps)
     return steps[:n]
+
+
+def load_dev_steps(n: int, seed: int = 0) -> list[Step]:
+    """`n` steps from the training split, for tuning (see DEV_SHARDS)."""
+    return load_steps(n, seed, splits=tuple(DEV_SHARDS))
+
+
+_FULL_REPR = re.compile(
+    r"^\[(?P<tag>[^\]]*)\]\s+(?P<name>.*?)\s+->\s+(?P<op>\w+)(?::\s*(?P<value>.*))?$"
+)
+
+
+def repr_to_sentence(r: str) -> str:
+    """'[textbox]  Zip -> TYPE: 08817' -> 'Typed "08817" into textbox "Zip"'."""
+    m = _FULL_REPR.match(r.strip())
+    if not m:
+        return r
+    tag, name, op, value = m["tag"], m["name"].strip(), m["op"], (m["value"] or "").strip()
+    what = f'{tag} "{name}"' if name else tag
+    match op:
+        case "TYPE":
+            return f'Typed "{value}" into {what}'
+        case "SELECT":
+            return f'Selected "{value}" in {what}'
+        case "HOVER":
+            return f"Hovered over {what}"
+        case _:
+            return f"Clicked {what}"
