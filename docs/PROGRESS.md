@@ -11,8 +11,8 @@ Update this file at the end of every phase and whenever a deviation or open ques
 | 3 | State pipeline | ✅ Done (2026-09-24) | 68 tests + 1 live; recall@200 100%, @1 81% on 31 labels |
 | 4 | End-to-end loop (Mock + LLM deciders) | ✅ Done (2026-09-25) | 151 tests + 1 live; done-when task succeeds live |
 | 5 | Jev adapter | ✅ Done (2026-09-29) | 168 tests + 1 live; done-when task: 4/4 steps by Jev, 0% escalated |
-| 6 | Offline eval (Mind2Web) | ⏳ Next | Waiting for go-ahead |
-| 7 | Online eval (WebArena) | — | |
+| 6 | Offline eval (Mind2Web) | ✅ Done (2026-09-30) | 500 steps; report in `docs/results/mind2web-500/`; $4.25 spent |
+| 7 | Online eval (WebArena) | ⏳ Next | Needs Docker setup (see open questions) |
 | 8 | macOS desktop mode | — | |
 | 9 | Polish and demo | — | |
 
@@ -95,6 +95,43 @@ Update this file at the end of every phase and whenever a deviation or open ques
   Jev decisions are ~4x faster than the LLM's. Most of the remaining cost is the single planner call.
 - Run: `uv run clev run "search Wikipedia for Karachi and open the article"`, then `uv run clev replay traces/<run>.jsonl`.
 
+### Phase 6: Offline eval, Mind2Web (branch `phase-6/mind2web-eval`)
+- Built: `evals/mind2web/loader.py` (official test splits from `osunlp/Multimodal-Mind2Web`; only the needed parquet
+  columns are fetched, ~25 MB instead of ~1 GB of screenshots), `render.py` (each step's saved HTML loaded into
+  Chromium and read by **our real observer**), `run.py` (concurrent deciders, answers cached in `evals/cache/`),
+  `planned.py` (live-style variant), `evals/report.py` (metrics, escalation simulation, calibration, plots),
+  `clev eval mind2web`. Full report: [docs/results/mind2web-500/report.md](results/mind2web-500/report.md).
+- 500 steps, 57 websites, 134 tasks, evenly from the task / website / domain test splits. Every decider sees the same
+  Clev pipeline output, so only the decider differs.
+
+  | Decider (whole-task goal, Mind2Web's setup) | Element acc | Median ms / decision | $ / 1k steps |
+  |---|---|---|---|
+  | Jev alone | 26.0% | **395** | **$0.21** |
+  | Clev (Jev + luna @ 0.6) | 33.4% (74% escalated) | 2,857 | $0.49 |
+  | Clev (Jev + luna @ 0.3) | 31.4% (40% escalated) | 455 | $0.36 |
+  | gpt-6-luna alone | 34.6% | 2,761 | $0.37 |
+  | gpt-6-sol alone | 38.8% | 3,426 | $7.01 |
+
+- **Findings:**
+  1. **Speed and cost hold up; accuracy doesn't, in this setup.** Jev decides ~7x faster than luna and ~9x faster
+     than sol, and costs ~1.8x less than luna and ~33x less than sol, but is 8.6 points behind luna and 12.8 behind sol.
+  2. **The pipeline ceiling is the biggest limit:** the target is among the 200 options in only 66.8% of steps
+     (84.6% exist in Mind2Web's saved HTML, 76.0% are seen by the observer). Unbiased ranking recall: 88% of observed
+     targets survive the cut (vs 100% on our own labels). More options help Jev: 21% / 25% / 26% at 50 / 100 / 200.
+  3. **Calibration is ordinal but overconfident** (ECE 0.198): accuracy rises steadily with confidence (0% at 0.1–0.2,
+     75% at 0.9–1.0), but e.g. confidence 0.54 means 35% accuracy. Good for ranking which steps to escalate; the
+     threshold isn't a probability.
+  4. **Escalation has no sweet spot here:** accuracy climbs slowly with escalation (31.2% at 35% escalated -> 34.6% at
+     91%). At the default 0.6, 74% of steps escalate, which removes most of the speed gain.
+  5. **Given the same explicit subgoal, Jev matches the LLM** (live-style variant: Jev 20.2% vs luna 21.0% with
+     planner-written subgoals). So Jev's element choice isn't the weakness; working out *what to do next* is. But
+     per-step planner subgoals lowered **everyone's** accuracy (35% -> 21%): the planner sees only 40 elements and often
+     guesses the wrong next step, and 12% of its subgoals copied Mind2Web's `[tag] name -> OP` history format.
+- Mind2Web's standard setup (whole task + past actions per step) makes the decider plan, which live Clev leaves to the
+  planner. It measures Jev as a *planner-and-picker*, the hardest case for it. WebArena (Phase 7) tests the real loop.
+- Run: `uv sync --extra eval`, then `uv run clev eval mind2web --n 500` (cached answers are reused; a re-run with no new
+  deciders makes no model calls).
+
 ## Deviations from the plan
 - Added types `Option`, `SerializedState`, `StepRecord` and a `Tracer` protocol (the plan referenced
   but didn't define them).
@@ -145,6 +182,21 @@ Update this file at the end of every phase and whenever a deviation or open ques
     for Phase 6 calibration.
   - Touched beyond `decide/jev.py` + `decide/escalate.py`: `Decision` gained optional fields, `SerializedState.header`,
     the loop copies escalation info into `StepRecord`, and the CLI/replay wiring.
+- **Phase 6:**
+  - Data from `osunlp/Multimodal-Mind2Web` (official test splits as parquet), first shard of each split, 500 steps
+    sampled evenly. The original `test.zip` is password-protected to avoid crawling; the parquet copy isn't.
+  - Mind2Web's cleaned HTML drops `href` from links and renames `aria-*` to `aria_*`; the eval renderer restores both
+    before our observer reads it (eval-only; the live observer is unchanged).
+  - Two element scores: **strict** (exact Mind2Web element) and **equivalent** (headline: the target's `<label>`
+    input, or a link/button wrapping the target text, i.e. the same click). Action accuracy = equivalent element +
+    right verb; typed values aren't scored (they come from the planner, not the decider).
+  - Jev + escalation is **simulated** from recorded Jev and luna answers with the per-step rules (confidence, margin,
+    NONE_OF_THESE/STUCK, subgoal_complete/error_visible, Jev errors). History rules (repeats, no progress) need a
+    live loop, so they're not in the offline number.
+  - Baselines: luna and sol. Astra was skipped for cost (~$32 for 500 steps).
+  - "The planner model as decider" (plan) = luna here, since planner and escalation model are both `gpt-6-luna`; sol
+    was added as the stronger baseline.
+  - Extra: the live-style variant (planner-written subgoal per step), to separate planning from picking.
 - Not covered yet: iframes (same-origin iframe content is skipped) and closed shadow roots.
 - Observer emits interactive elements plus `heading`/`alert`/`status` for context; Phase 3 filters.
   `visible` means rendered (non-zero size, not hidden), so off-screen elements count as visible.
@@ -186,10 +238,20 @@ Update this file at the end of every phase and whenever a deviation or open ques
   same call (TypeSafe's fan-out pattern), saving a round trip per subgoal.
 - [ ] Planner sometimes emits redundant subgoals ("Click the Issues tab" then "Open the Issues page"). Jev clears
   them in ~0.5 s, but a prompt tweak could remove them.
-- [ ] Jev latency here is 0.4–1.1 s per call, above the plan's 70–500 ms (includes network from this machine and
-  ~200 options per call). Measure by option count in Phase 6 (the `MAX_OPTIONS` sweep).
-- [ ] No step escalated in the 5 normal live runs; the threshold (0.6) and margin (0.1) are untuned. Phase 6 tunes
-  them against accuracy and cost.
+- [x] Jev latency on Mind2Web: median 376 / 379 / 395 ms at 50 / 100 / 200 options (p95 495–566 ms), so option
+  count barely affects it. Within the plan's 70–500 ms at the median.
+- [ ] **Threshold decision needed.** Mind2Web: 0.6 escalates 74% of steps (slow); 0.3 escalates 40% for -2 points.
+  Live runs with planner subgoals: 0.6 escalated 0%. The right value depends on the task mix, so keep 0.6 until
+  WebArena (Phase 7) measures the real loop, then pick from that sweep.
+- [ ] **Biggest accuracy lever is recall, not the decider:** the target reaches the options in only 67% of Mind2Web
+  steps. Candidates: detect JS-only clickables (`cursor:pointer`/`onclick` divs and spans) in the observer, and
+  better ranking (plan's v2: embeddings). Tune on train-split data, never on the test steps above.
+- [ ] Planner subgoal quality: it sees only 40 elements, and it sometimes copies action-log formats. Show it more of
+  the page (or the ranked top candidates) and phrase history as sentences.
+- [ ] Jev is overconfident (ECE 0.198; 0.464 with planner subgoals). If needed, recalibrate its confidence on
+  train-split data (e.g. isotonic) before thresholding.
+- [ ] Headline framing: per-decision speed (~7x vs luna) and cost (~33x vs sol) are real; "within a few points" holds
+  only with heavy escalation in this setup. Confirm on WebArena before writing the headline chart.
 - [ ] Anthropic `LLMClient` adapter (deferred from Phase 4; needs a key to test live).
 - [ ] Safety word lists err on the side of asking ("Payment methods" link counts as destructive). Tune if it
   gets annoying; never loosen the credential rule.
