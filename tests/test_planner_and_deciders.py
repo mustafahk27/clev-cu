@@ -125,3 +125,15 @@ async def test_mock_decider_policy():
     assert (await mock.decide(state, "Open the settings", [])).chosen_label == "NONE_OF_THESE"
     acted = StepRecord(run_id="r", step=1, subgoal="Log in", decision=first, executed=True)
     assert (await mock.decide(state, "Log in", [acted])).chosen_label == "SUBGOAL_DONE"
+
+
+def test_describe_page_shows_task_relevant_elements_on_long_pages():
+    import clev.planner.planner as planner_mod
+
+    filler = [el(f"e{i}", "link", f"Footer link {i}") for i in range(100)]
+    target = el("e100", "link", "Budget Truck rental")
+    obs = page(*filler, target)
+    assert "Budget Truck" not in describe_page(obs)  # first-N view misses it
+    text = describe_page(obs, "Rent a budget truck")
+    assert "Budget Truck rental" in text
+    assert text.count("\n") == planner_mod.PAGE_ELEMENTS
