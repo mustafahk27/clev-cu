@@ -257,3 +257,20 @@ def test_bottom_of_page_target_survives_a_long_page():
     obs = Observation(app="a", title="t", elements=elements)
     state = build_state(obs, "Open the first story")
     assert "more" in {o.action.element_id for o in state.options if o.action}
+
+
+def test_rank_favors_neighbours_of_the_last_touched_element():
+    from clev.state.rank import anchor_index
+
+    cands = [el(f"e{i}", "link", f"Item {i}") for i in range(30)]
+    cands[20] = el("e20", "textbox", "Zip code", editable=True)
+    cands[21] = el("e21", "button", "Find trucks")
+    assert anchor_index(cands, "zip code ") == 20
+    ranked = [e.id for e, _ in rank(cands, "Rent a cheap truck", anchor="Zip code")]
+    assert ranked.index("e21") < 3  # next to the field just filled, and a "find" control
+    assert rank(cands, "x", anchor="no such element")  # unknown anchor is ignored
+
+
+def test_form_prior_lifts_text_fields_for_vague_goals():
+    cands = [el("e0", "link", "Movies"), el("e1", "searchbox", "Search IMDb", editable=True)]
+    assert rank(cands, "Find the top rated movie of 2020")[0][0].id == "e1"

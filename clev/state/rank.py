@@ -103,13 +103,48 @@ def select(
     return top + [rest[i] for i in picks]
 
 
+# Context priors (tuned on the Mind2Web train split, never the test split). Each helps when the
+# goal shares no words with the target: long task-level goals, generic "continue" steps.
+# Chosen on 400 train steps (2026-10-01): top-50 recall 45.8% -> 51.0%, top-200 67.8% -> 69.0%,
+# with subgoal-style labels unchanged or better. Larger weights overfit (labels @1 87% -> 74%).
+W_NEAR = 3.0  # max bonus for candidates next to the element the last action touched
+NEAR_WINDOW = 10  # candidates within this many positions (page order) of it get a share
+W_FORM = 2.0  # fields that take text are frequent targets
+W_ADVANCE = 0.5  # controls that move a flow forward
+ADVANCE_WORDS = frozenset(
+    tokens("search submit continue next go apply find done ok proceed show view results")
+)
+
+
+def anchor_index(candidates: Sequence[Element], anchor: str | None) -> int | None:
+    """Position of the element the last action touched, matched by name (ids change)."""
+    if not anchor:
+        return None
+    want = anchor.strip().lower()
+    return next((i for i, e in enumerate(candidates) if e.name.strip().lower() == want), None)
+
+
 def rank(
     candidates: Sequence[Element],
     subgoal: str,
     viewport: tuple[int, int, int, int] | None = None,
+    anchor: str | None = None,
 ) -> list[tuple[Element, float]]:
-    """Candidates with scores, best first. Ties keep page order."""
+    """Candidates with scores, best first. Ties keep page order.
+
+    `anchor`: name of the element the previous action touched, if any.
+    """
     goal = Goal.parse(subgoal)
     dialog_open = any(in_dialog(e) for e in candidates)
-    scored = [(e, score(e, goal, viewport, dialog_open)) for e in candidates]
+    at = anchor_index(candidates, anchor)
+    scored = []
+    for i, e in enumerate(candidates):
+        s = score(e, goal, viewport, dialog_open)
+        if at is not None and i != at and W_NEAR:
+            s += W_NEAR * max(0.0, 1 - abs(i - at) / NEAR_WINDOW)
+        if W_FORM and is_editable(e):
+            s += W_FORM
+        if W_ADVANCE and set(tokens(e.name)) & ADVANCE_WORDS:
+            s += W_ADVANCE
+        scored.append((e, s))
     return sorted(scored, key=lambda pair: -pair[1])  # sorted() is stable

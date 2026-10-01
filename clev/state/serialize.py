@@ -69,6 +69,7 @@ def build_state(
     done: list[str] | None = None,
     max_options: int = 200,
     token_budget: int = 24000,
+    anchor: str | None = None,
 ) -> SerializedState:
     """Filter, rank, keep the top `max_options`, and render within `token_budget` tokens.
 
@@ -78,7 +79,7 @@ def build_state(
     """
     filtered = filter_elements(obs)
     order = {e.id: i for i, e in enumerate(obs.elements)}
-    ranked = [e for e, _ in rank(filtered.candidates, subgoal, obs.viewport)]
+    ranked = [e for e, _ in rank(filtered.candidates, subgoal, obs.viewport, anchor)]
     keep = select(ranked, max_options, order)
     head = header(obs, subgoal, done or [], filtered.context)
 
