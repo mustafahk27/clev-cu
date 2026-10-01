@@ -201,3 +201,20 @@ async def test_escalation_fields_reach_the_trace():
     assert rec.escalated and rec.escalation_reason == "low confidence 0.4 < 0.6"
     assert rec.checks == {"subgoal_complete": 0.1}
     assert isinstance(rec.decision, Decision)
+
+
+async def test_loop_passes_last_touched_element_as_ranking_anchor(monkeypatch):
+    import clev.core.loop as loop_mod
+
+    anchors = []
+    real = loop_mod.build_state
+
+    def spy(*args, **kwargs):
+        anchors.append(kwargs.get("anchor"))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(loop_mod, "build_state", spy)
+    site = wiki_site()
+    agent, _ = make_agent(site, FakePlanner(PLAN))
+    await agent.run("task")
+    assert anchors[0] is None and anchors[1] == "Search Wikipedia"  # after typing into it

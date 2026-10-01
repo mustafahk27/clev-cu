@@ -168,7 +168,9 @@ class Agent:
         s = self.settings
 
         obs = await self.observer.observe()
-        state = build_state(obs, subgoal, run.done, s.max_options, s.token_budget)
+        state = build_state(
+            obs, subgoal, run.done, s.max_options, s.token_budget, anchor=self._anchor(run)
+        )
         decision = await self.decider.decide(state, subgoal, run.history)
         rec = StepRecord(
             run_id=self.run_id,
@@ -261,6 +263,16 @@ class Agent:
         if decision.action and decision.action.element_id:
             keep.add(decision.action.element_id)
         return obs.model_copy(update={"elements": [e for e in obs.elements if e.id in keep]})
+
+    @staticmethod
+    def _anchor(run: _Run) -> str | None:
+        """Name of the element the last executed action touched (ranking favors its neighbours)."""
+        for rec in reversed(run.history):
+            a = rec.decision.action if rec.decision else None
+            if rec.executed and a and a.element_id and rec.observation:
+                target = rec.observation.element(a.element_id)
+                return target.name if target else None
+        return None
 
     @staticmethod
     def _signature(action: Action, obs: Observation) -> tuple:
