@@ -132,6 +132,32 @@ Update this file at the end of every phase and whenever a deviation or open ques
 - Run: `uv sync --extra eval`, then `uv run clev eval mind2web --n 500` (cached answers are reused; a re-run with no new
   deciders makes no model calls).
 
+### Phase 6 follow-up: recall and planner improvements (branch `phase-6/improve-recall-planner`)
+- Tuned on a **dev set from Mind2Web's training split** (400 steps, 31 sites, no task overlap with test); the test
+  set was run once at the end. `clev eval mind2web --dev` runs the dev set.
+- **Ranking context priors** (`clev/state/rank.py`): a bonus for candidates next to the element the last action
+  touched (`anchor`, passed by the loop and by the eval from the previous action), for text fields, and for
+  "move forward" controls (search, continue, next...). Weights chosen on dev and checked against the subgoal-style
+  labels; the largest weights overfit (labels @1 87% -> 74%) and were rejected.
+- **Planner page view** (`describe_page`): the 60 candidates most relevant to the task, in page order, instead of the
+  first 40 on the page. **Eval history** now reads as sentences (`Clicked link "Budget Truck"`), like live Clev's
+  done-list, instead of Mind2Web's `[tag] name -> OP` log (which the planner copied 12% of the time).
+- **Cache keys include a hash of each model input**, so answers from an older pipeline are never reused.
+- Test-set results, same 500 steps (report: [docs/results/mind2web-500-v2/report.md](results/mind2web-500-v2/report.md)):
+
+  | | Before | After |
+  |---|---|---|
+  | Target among the 200 options | 66.8% | **70.6%** |
+  | Jev, whole-task goal | 26.0% | **28.8%** |
+  | gpt-6-luna, whole-task goal | 34.6% | 35.6% |
+  | Jev + planner subgoals | 20.2% | **32.6%** |
+  | gpt-6-luna + planner subgoals | 21.0% | 36.2% |
+  | **Clev + planner** (Jev, escalate to luna @ 0.6) | – | **35.0%, 39% escalated** |
+  | Jev ECE | 0.198 | 0.175 |
+
+  Live-style Clev now matches luna-alone accuracy (35.0% vs 35.6%) while escalating 39% of steps. sol wasn't re-run
+  (~$3.50); its 38.8% is from the old pipeline. Spend for this round: $1.10.
+
 ## Deviations from the plan
 - Added types `Option`, `SerializedState`, `StepRecord` and a `Tracer` protocol (the plan referenced
   but didn't define them).
@@ -243,11 +269,10 @@ Update this file at the end of every phase and whenever a deviation or open ques
 - [ ] **Threshold decision needed.** Mind2Web: 0.6 escalates 74% of steps (slow); 0.3 escalates 40% for -2 points.
   Live runs with planner subgoals: 0.6 escalated 0%. The right value depends on the task mix, so keep 0.6 until
   WebArena (Phase 7) measures the real loop, then pick from that sweep.
-- [ ] **Biggest accuracy lever is recall, not the decider:** the target reaches the options in only 67% of Mind2Web
-  steps. Candidates: detect JS-only clickables (`cursor:pointer`/`onclick` divs and spans) in the observer, and
+- [ ] **Recall is still the biggest ceiling:** 70.6% of test steps after the follow-up (was 66.8%). Candidates: detect JS-only clickables (`cursor:pointer`/`onclick` divs and spans) in the observer, and
   better ranking (plan's v2: embeddings). Tune on train-split data, never on the test steps above.
-- [ ] Planner subgoal quality: it sees only 40 elements, and it sometimes copies action-log formats. Show it more of
-  the page (or the ranked top candidates) and phrase history as sentences.
+- [x] Planner subgoal quality: ranked 60-candidate page view + sentence history took planner-subgoal accuracy
+  from 20% to 33–36% on test.
 - [ ] Jev is overconfident (ECE 0.198; 0.464 with planner subgoals). If needed, recalibrate its confidence on
   train-split data (e.g. isotonic) before thresholding.
 - [ ] Headline framing: per-decision speed (~7x vs luna) and cost (~33x vs sol) are real; "within a few points" holds

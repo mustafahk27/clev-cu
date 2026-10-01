@@ -23,5 +23,5 @@ uv run pytest            # offline tests
 uv run pytest -m live    # tests that hit real sites
 ```
 
-Status: Phase 6 (offline eval). Mind2Web results: [docs/results/mind2web-500/report.md](docs/results/mind2web-500/report.md). The control loop lands in Phase 4.
+Status: Phase 6 (offline eval). Mind2Web results: [docs/results/mind2web-500-v2/report.md](docs/results/mind2web-500-v2/report.md) (first run: [mind2web-500](docs/results/mind2web-500/report.md)). The control loop lands in Phase 4.
 Progress and open questions: [docs/PROGRESS.md](docs/PROGRESS.md).
